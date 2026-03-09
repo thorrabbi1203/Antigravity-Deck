@@ -30,7 +30,7 @@ const AnalyticsPanel = dynamic(() => import('@/components/analytics-panel').then
 const StepDetail = dynamic(() => import('@/components/step-detail').then(m => ({ default: m.StepDetail })), { ssr: false });
 
 export default function Home() {
-  const { connected, steps, conversations, currentConvId, cascadeStatus, conversationsVersion, selectConversation, lastUpdate } = useWebSocket();
+  const { connected, steps, conversations, currentConvId, cascadeStatus, conversationsVersion, stepContentVersion, selectConversation, lastUpdate } = useWebSocket();
 
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showTimeline, setShowTimeline] = useState(() => {
@@ -459,6 +459,7 @@ export default function Home() {
                 currentConvId={currentConvId}
                 currentWorkspace={activeWorkspace}
                 wsVersion={wsVersion}
+                stepContentVersion={stepContentVersion}
                 cascadeStatus={cascadeStatus ?? undefined}
                 onCascadeCreated={handleCascadeCreated}
                 onNewConversation={handleNewConversation}
