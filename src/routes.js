@@ -114,6 +114,65 @@ function setupRoutes(app) {
         res.json({ detected: lsInstances.length > 0, port: firstInst?.port || null });
     });
 
+    // Launch IDE — fire-and-forget, opens the Antigravity IDE application
+    // Security: no user input, rate-limited via strictLimiter in server.js, auth-protected
+    app.post('/api/launch-ide', (req, res) => {
+        const { platform } = require('./config');
+        console.log(`[*] Launch IDE requested (platform: ${platform})`);
+
+        try {
+            if (platform === 'darwin') {
+                // macOS: try Antigravity first, fallback to Windsurf
+                const child = spawn('open', ['-a', 'Antigravity'], {
+                    timeout: 10000,
+                    detached: true,
+                    stdio: 'ignore'
+                });
+
+                child.on('error', () => {
+                    console.log('[*] Antigravity app not found, trying Windsurf...');
+                    const fallback = spawn('open', ['-a', 'Windsurf'], {
+                        timeout: 10000, detached: true, stdio: 'ignore'
+                    });
+                    fallback.on('error', (e) => console.error('[!] Failed to open IDE:', e.message));
+                    fallback.unref();
+                });
+
+                child.on('exit', (code) => {
+                    if (code !== 0 && code !== null) {
+                        console.log(`[*] Antigravity exited with code ${code}, trying Windsurf...`);
+                        const fallback = spawn('open', ['-a', 'Windsurf'], {
+                            timeout: 10000, detached: true, stdio: 'ignore'
+                        });
+                        fallback.on('error', (e) => console.error('[!] Failed to open IDE:', e.message));
+                        fallback.unref();
+                    }
+                });
+
+                child.unref();
+            } else {
+                // Windows/Linux
+                const child = spawn('antigravity', [], {
+                    timeout: 10000,
+                    detached: true,
+                    stdio: 'ignore',
+                    shell: platform === 'win32',
+                });
+
+                child.on('error', (err) => {
+                    console.error('[!] Failed to launch antigravity:', err.message);
+                });
+
+                child.unref();
+            }
+
+            res.json({ launched: true, platform });
+        } catch (e) {
+            console.error('[!] Launch IDE error:', e.message);
+            res.status(500).json({ error: 'Failed to launch IDE' });
+        }
+    });
+
     // Clear cache for a specific conversation — see also app.delete('/api/cache/:id') below
     // (consolidated into single handler below)
 

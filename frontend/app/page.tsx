@@ -7,7 +7,9 @@ import { extractStepContent, exportToMarkdown } from '@/lib/step-utils';
 import { Timeline } from '@/components/timeline';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { MoreVertical, BarChart2, Download, Bell, BellOff, FolderSync, Star, WifiOff, FolderOpen } from 'lucide-react';
+import { MoreVertical, BarChart2, Download, Bell, BellOff, FolderSync, Star, WifiOff, FolderOpen, Rocket, Loader2, Check } from 'lucide-react';
+import { API_BASE } from '@/lib/config';
+import { authHeaders } from '@/lib/auth';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,6 +41,49 @@ function getStoredValue<T>(key: string, fallback: T): T {
     if (stored === null) return fallback;
     return JSON.parse(stored) as T;
   } catch { return fallback; }
+}
+
+/** Button to launch the Antigravity IDE from the welcome screen. */
+function LaunchIdeButton() {
+  const [state, setState] = useState<'idle' | 'launching' | 'launched'>('idle');
+
+  const handleLaunch = useCallback(async () => {
+    if (state !== 'idle') return;
+    setState('launching');
+    try {
+      await fetch(`${API_BASE}/api/launch-ide`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      });
+      setState('launched');
+      // Reset after 15s cooldown
+      setTimeout(() => setState('idle'), 15000);
+    } catch {
+      setState('idle');
+    }
+  }, [state]);
+
+  return (
+    <button
+      onClick={handleLaunch}
+      disabled={state !== 'idle'}
+      className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+        state === 'launched'
+          ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 cursor-default'
+          : state === 'launching'
+            ? 'bg-primary/10 text-primary border border-primary/30 cursor-wait'
+            : 'bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 hover:border-primary/50 cursor-pointer'
+      }`}
+    >
+      {state === 'launched' ? (
+        <><Check className="w-4 h-4" /> Launched — waiting for detection...</>
+      ) : state === 'launching' ? (
+        <><Loader2 className="w-4 h-4 animate-spin" /> Launching...</>
+      ) : (
+        <><Rocket className="w-4 h-4" /> Launch Antigravity</>
+      )}
+    </button>
+  );
 }
 
 export default function Home() {
@@ -502,6 +547,7 @@ export default function Home() {
                     </li>
                   ))}
                 </ol>
+                <LaunchIdeButton />
                 <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground/70">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400/75" />

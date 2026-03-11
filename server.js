@@ -212,8 +212,9 @@ if (AUTH_KEY) {
     next();
   });
   
-  // Apply strict rate limiter to settings endpoint (sensitive operations)
+  // Apply strict rate limiter to sensitive operations
   app.use('/api/settings', strictLimiter);
+  app.use('/api/launch-ide', strictLimiter);
 } else {
   console.log('  ⚠️  No AUTH_KEY set — API is open (safe for local dev)');
 }
