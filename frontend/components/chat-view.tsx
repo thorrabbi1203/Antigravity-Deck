@@ -114,7 +114,7 @@ export function ChatView({ steps, baseIndex = 0, stepCount = 0, loadingOlder = f
     const wsPickerRef = useRef<HTMLDivElement>(null);
     const modelPickerRef = useRef<HTMLDivElement>(null);
 
-    // Chat scroll — autoScroll as ref to avoid re-renders on scroll events (rerender-use-ref-transient-values)
+    // Chat scroll — autoScroll as ref to avoid re-renders on scroll events
     const bottomRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const autoScrollRef = useRef(true);
@@ -122,6 +122,29 @@ export function ChatView({ steps, baseIndex = 0, stepCount = 0, loadingOlder = f
     const fileInputRef = useRef<HTMLInputElement>(null);
     // Snapshot of sent images for optimistic rendering (survives state clear)
     const pendingMediaRef = useRef<{ dataUrl: string; mimeType: string; name: string }[]>([]);
+
+    // Detect REAL user scroll via wheel/touch events (these NEVER fire from programmatic scrollIntoView)
+    // This is the key to distinguishing user intent from auto-scroll
+    const userScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+    const isUserScrollingRef = useRef(false);
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const markUserScroll = () => {
+            isUserScrollingRef.current = true;
+            clearTimeout(userScrollTimeoutRef.current);
+            userScrollTimeoutRef.current = setTimeout(() => {
+                isUserScrollingRef.current = false;
+            }, 150);
+        };
+        el.addEventListener('wheel', markUserScroll, { passive: true });
+        el.addEventListener('touchstart', markUserScroll, { passive: true });
+        return () => {
+            el.removeEventListener('wheel', markUserScroll);
+            el.removeEventListener('touchstart', markUserScroll);
+            clearTimeout(userScrollTimeoutRef.current);
+        };
+    }, []);
 
     // Reset textarea height when input is cleared (e.g. after send)
     useEffect(() => {
@@ -132,8 +155,8 @@ export function ChatView({ steps, baseIndex = 0, stepCount = 0, loadingOlder = f
 
     // Auto-scroll: triggers on new steps (length change) AND streaming content updates (wsVersion)
     useEffect(() => {
-        if (autoScrollRef.current) {
-            bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+        if (autoScrollRef.current && bottomRef.current) {
+            bottomRef.current.scrollIntoView({ behavior: 'smooth' });
         } else if (steps.length > prevStepsLenRef.current) {
             // New steps arrived but user is scrolled up — show button
             setShowScrollBtn(true);
@@ -145,9 +168,7 @@ export function ChatView({ steps, baseIndex = 0, stepCount = 0, loadingOlder = f
     useEffect(() => {
         const el = containerRef.current;
         if (el && baseIndex < prevBaseIndexRef.current && steps.length > prevStepsLenRef.current) {
-            // Older steps were prepended — estimate added height and adjust scroll
             const addedCount = steps.length - prevStepsLenRef.current;
-            // ~80px per step is a reasonable estimate; requestAnimationFrame ensures DOM is updated
             requestAnimationFrame(() => {
                 el.scrollTop += addedCount * 80;
             });
@@ -158,10 +179,14 @@ export function ChatView({ steps, baseIndex = 0, stepCount = 0, loadingOlder = f
     const handleScroll = useCallback(() => {
         if (!containerRef.current) return;
         const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-        const atBottom = scrollHeight - scrollTop <= clientHeight + 100;
-        autoScrollRef.current = atBottom;
-        if (atBottom) setShowScrollBtn(false);
-        // Scroll-up: trigger load older steps when near top
+        // Only update autoScroll state from REAL user scrolls (wheel/touch)
+        // Programmatic scrollIntoView fires scroll events but NOT wheel/touch events
+        if (isUserScrollingRef.current) {
+            const atBottom = scrollHeight - scrollTop <= clientHeight + 100;
+            autoScrollRef.current = atBottom;
+            if (atBottom) setShowScrollBtn(false);
+        }
+        // Always check: load older steps when near top
         if (scrollTop < 100 && baseIndex > 0 && !loadingOlder && onLoadOlder) {
             onLoadOlder();
         }
@@ -204,6 +229,16 @@ export function ChatView({ steps, baseIndex = 0, stepCount = 0, loadingOlder = f
 
     // Reset localCascadeId when currentConvId changes
     useEffect(() => { setLocalCascadeId(null); }, [currentConvId]);
+
+    // Scroll to bottom when entering/switching conversations
+    useEffect(() => {
+        autoScrollRef.current = true;
+        // Use a short delay to let the DOM render the new steps first
+        const timer = setTimeout(() => {
+            bottomRef.current?.scrollIntoView({ behavior: 'instant' });
+        }, 50);
+        return () => clearTimeout(timer);
+    }, [currentConvId]);
 
     // Close pickers on outside click
     useEffect(() => {
