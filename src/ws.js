@@ -33,6 +33,11 @@ function setupWebSocket(wss, { ensureCached, stepCache }) {
                 if (msg.type === 'set_conversation') {
                     clientConvMap.set(ws, msg.conversationId);
                     console.log(`[WS] set_conversation → ${msg.conversationId?.substring(0, 8)}, clients: ${clientConvMap.size}`);
+                    // Send loading indicator immediately if conversation isn't cached yet
+                    // (ensureCached may take 5-15s for heavy conversations with 500+ steps)
+                    if (!stepCache[msg.conversationId]) {
+                        sendToOne(ws, { type: 'steps_loading', conversationId: msg.conversationId });
+                    }
                     await ensureCached(msg.conversationId, getInstanceForCascade(msg.conversationId));
                     const cache = stepCache[msg.conversationId];
                     sendToOne(ws, {
