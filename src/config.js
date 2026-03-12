@@ -7,7 +7,13 @@ const lsConfig = { port: null, csrfToken: null, detected: false, useTls: false }
 const lsInstances = []; // All detected LS instances: { pid, csrfToken, workspaceId, port, useTls, active }
 const platform = os.platform(); // 'darwin', 'win32', 'linux'
 
-const PORT = parseInt(process.env.PORT, 10) || 3500;
+let portOverride = null;
+const portIdx = process.argv.indexOf('--port');
+if (portIdx > -1 && process.argv[portIdx + 1]) {
+    portOverride = parseInt(process.argv[portIdx + 1], 10);
+}
+
+const PORT = portOverride || parseInt(process.env.PORT, 10) || 3500;
 const POLL_INTERVAL = 3000;
 const FAST_POLL_INTERVAL = 1000;  // Active cascade (running / waiting for user)
 const SLOW_POLL_INTERVAL = 5000;  // Idle
