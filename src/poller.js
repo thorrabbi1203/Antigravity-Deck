@@ -142,6 +142,8 @@ async function pollNow() {
                     triggerBridgeRelay(cascadeId);
                     // Final poll: fetch complete step content before stopping
                     await pollConversation(cascadeId, info);
+                    // Notify frontend to refresh conversation list (summary/title may have changed)
+                    _broadcastAll({ type: 'conversations_updated' });
                 }
 
                 // Fast-cascade relay: first time seeing this cascade and it's already IDLE/DONE

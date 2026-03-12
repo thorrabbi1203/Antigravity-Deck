@@ -194,7 +194,15 @@ export function useWebSocket() {
         const offCascadeStatus = wsService.on('cascade_status', (data) => {
             setState(prev => {
                 if (data.conversationId && data.conversationId !== prev.currentConvId) return prev;
-                return { ...prev, cascadeStatus: data.status as string };
+                const newState = { ...prev, cascadeStatus: data.status as string };
+                // When cascade completes, bump conversationsVersion to refresh sidebar
+                // (summary/title/stepCount may have changed)
+                const isDone = data.status !== 'CASCADE_RUN_STATUS_RUNNING' &&
+                               data.status !== 'CASCADE_RUN_STATUS_WAITING_FOR_USER';
+                if (isDone && prev.cascadeStatus && prev.cascadeStatus !== data.status) {
+                    newState.conversationsVersion = prev.conversationsVersion + 1;
+                }
+                return newState;
             });
         });
 
