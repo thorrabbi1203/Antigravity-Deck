@@ -109,7 +109,7 @@ export default function Home() {
     soundService.init();
 
     const unlock = () => {
-      soundService.unlock();
+      soundService?.unlock();
       setSoundUnlockBanner(false);
     };
     document.addEventListener('click', unlock, { once: true });
