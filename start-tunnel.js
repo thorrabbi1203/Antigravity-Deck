@@ -148,10 +148,28 @@ async function runLocal() {
     // Kill stale processes
     killStaleProcesses([BE_PORT, FE_PORT]);
 
-    // Build if needed
+    // Build if needed — detect stale builds from dev mode or different port
     const nextDir = path.join(__dirname, 'frontend', '.next');
-    if (FORCE_BUILD || !fs.existsSync(nextDir)) {
+    const portFile = path.join(nextDir, '.backend-port');
+    let needBuild = FORCE_BUILD || !fs.existsSync(nextDir);
+    if (!needBuild) {
+        // Check if the build was done with the correct backend port
+        try {
+            const builtPort = fs.readFileSync(portFile, 'utf8').trim();
+            if (builtPort !== String(BE_PORT)) {
+                log('*', `⚠️  Build was for port ${builtPort}, need port ${BE_PORT} — rebuilding...`);
+                needBuild = true;
+            }
+        } catch {
+            // No port file = dev mode build or old build — rebuild
+            log('*', '⚠️  No build port marker found — rebuilding...');
+            needBuild = true;
+        }
+    }
+    if (needBuild) {
         buildFrontend();
+        // Save the port this build was made for
+        try { fs.writeFileSync(portFile, String(BE_PORT)); } catch { }
     } else {
         log('*', '✅ Frontend already built (use --build to force rebuild)');
     }
@@ -257,6 +275,7 @@ async function runTunnel() {
 
     // Step 3: Build frontend (always — needs NEXT_PUBLIC_BACKEND_URL baked in)
     buildFrontend({ NEXT_PUBLIC_BACKEND_URL: beUrl, NEXT_PUBLIC_BACKEND_PORT: String(BE_PORT) });
+    try { fs.writeFileSync(path.join(__dirname, 'frontend', '.next', '.backend-port'), String(BE_PORT)); } catch { }
 
     // Step 4: Start frontend
     progress('Starting frontend...');
