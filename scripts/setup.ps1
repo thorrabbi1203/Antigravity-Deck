@@ -298,15 +298,34 @@ Write-Host ""
 Write-Host "  Press Ctrl+C to stop" -ForegroundColor DarkGray
 Write-Host ""
 
-# Start frontend production server on port 9808, cleanup backend on exit
+# Cleanup function — kills backend + any remaining port listeners
+function Cleanup-All {
+    Write-Host ""
+    Write-Host "  Shutting down..." -ForegroundColor Yellow
+    try {
+        if ($beProc -and -not $beProc.HasExited) {
+            taskkill /PID $beProc.Id /T /F 2>$null | Out-Null
+        }
+    } catch {}
+    foreach ($port in @(9807, 9808)) {
+        $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+        foreach ($conn in $conns) {
+            Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
+        }
+    }
+    Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Write-Host "  All processes stopped." -ForegroundColor Green
+    Write-Host ""
+}
+
+Register-EngineEvent PowerShell.Exiting -Action { Cleanup-All } -ErrorAction SilentlyContinue | Out-Null
+
+# Start frontend production server on port 9808
 try {
     Push-Location frontend
     $env:BACKEND_PORT = "9807"
     npx next start --port 9808
 }
-finally {
-    if (-not $beProc.HasExited) {
-        Write-Host "  [i] Shutting down backend..." -ForegroundColor DarkGray
-        Stop-Process -Id $beProc.Id -Force -ErrorAction SilentlyContinue
-    }
+catch {
+    Cleanup-All
 }

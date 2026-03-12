@@ -268,9 +268,25 @@ echo ""
 echo "  Press Ctrl+C to stop"
 echo ""
 
-# Ensure backend is killed when script exits
-trap "kill $BE_PID 2>/dev/null; exit 0" INT TERM EXIT
+# Cleanup function — kills backend + any remaining port listeners
+cleanup() {
+    echo ""
+    echo "  Shutting down..."
+    kill $BE_PID 2>/dev/null
+    for port in 9807 9808; do
+        if command -v lsof &>/dev/null; then
+            lsof -ti ":$port" 2>/dev/null | xargs kill -9 2>/dev/null
+        elif command -v fuser &>/dev/null; then
+            fuser -k "$port/tcp" 2>/dev/null
+        fi
+    done
+    pkill -f "cloudflared.*tunnel.*localhost" 2>/dev/null
+    echo "  All processes stopped."
+    echo ""
+    exit 0
+}
+
+trap cleanup INT TERM HUP EXIT
 
 # Start frontend production server on port 9808
 cd frontend && BACKEND_PORT=9807 npx next start --port 9808
-
