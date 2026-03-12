@@ -316,7 +316,43 @@ async function runTunnel() {
         tunFe.stderr?.on('data', handler);
     });
 
-    const qrUrl = feUrl ? `${feUrl}?key=${authKey}` : null;
+    // --- Reusable QR generation function ---
+    async function generateAndPrintQR() {
+        if (!feUrl) return;
+        let qrUrl = null;
+        try {
+            const http = require('http');
+            const otpResp = await new Promise((resolve, reject) => {
+                const req = http.request(`http://localhost:${BE_PORT}/api/auth/create-otp`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, timeout: 5000,
+                }, (res) => {
+                    let body = '';
+                    res.on('data', c => body += c);
+                    res.on('end', () => { try { resolve(JSON.parse(body)); } catch { reject(new Error('Invalid JSON')); } });
+                });
+                req.on('error', reject);
+                req.end();
+            });
+            qrUrl = `${feUrl}?otp=${otpResp.otp}`;
+            log('*', `✅ New OTP generated (expires in ${otpResp.expiresIn}s)`);
+        } catch (e) {
+            log('*', `⚠️  OTP generation failed: ${e.message} — falling back to key URL`);
+            qrUrl = `${feUrl}?key=${authKey}`;
+        }
+        console.log('\n\x1b[1m  📱 Scan QR (auto-login, expires 60s):\x1b[0m\n');
+        try {
+            const qrcode = require('qrcode-terminal');
+            qrcode.generate(qrUrl, { small: true }, (qr) => {
+                console.log(qr.split('\n').map(l => '    ' + l).join('\n'));
+                console.log(`\n  🔗 ${qrUrl}`);
+                console.log('\n  Press \x1b[1mR\x1b[0m to generate a new QR code, Ctrl+C to stop\n');
+            });
+        } catch {
+            console.log(`  🔗 ${qrUrl}`);
+            console.log('\n  Press \x1b[1mR\x1b[0m to generate a new QR code, Ctrl+C to stop\n');
+        }
+    }
+
     if (QUIET) process.stdout.write('\r\x1b[K');
 
     if (feUrl) {
@@ -329,17 +365,7 @@ async function runTunnel() {
         console.log(`  Local:       http://localhost:${FE_PORT}`);
         console.log('='.repeat(60));
 
-        console.log('\n\x1b[1m  📱 Scan this QR code to open (auto-login):\x1b[0m\n');
-        try {
-            const qrcode = require('qrcode-terminal');
-            qrcode.generate(qrUrl, { small: true }, (qr) => {
-                console.log(qr.split('\n').map(l => '    ' + l).join('\n'));
-                console.log(`\n  🔗 ${qrUrl}\n`);
-            });
-        } catch {
-            console.log(`  (qrcode-terminal not installed — scan URL manually)`);
-            console.log(`  🔗 ${qrUrl}\n`);
-        }
+        await generateAndPrintQR();
     } else {
         log('*', '⚠️  Frontend tunnel failed, but local access still works');
         console.log(`  Local: http://localhost:${FE_PORT}`);
@@ -351,7 +377,6 @@ async function runTunnel() {
         `Frontend: ${feUrl || 'FAILED'}`,
         `Backend:  ${beUrl || 'FAILED'}`,
         `Auth Key: ${authKey}`,
-        `QR URL:   ${qrUrl || 'N/A'}`,
         `Local FE: http://localhost:${FE_PORT}`,
         `Local BE: http://localhost:${BE_PORT}`,
         `Started:  ${new Date().toISOString()}`,
@@ -367,7 +392,21 @@ async function runTunnel() {
         tunFe.stderr?.on('data', d => d.toString().split('\n').filter(l => l.trim()).forEach(l => log('TUN-FE', l.trim())));
     }
 
-    console.log('\n  Press Ctrl+C to stop\n');
+    // Listen for R key to regenerate QR
+    if (process.stdin.isTTY) {
+        process.stdin.setRawMode(true);
+        process.stdin.resume();
+        process.stdin.on('data', async (data) => {
+            const key = data.toString().toLowerCase();
+            if (key === 'r') {
+                await generateAndPrintQR();
+            } else if (key === '\x03') { // Ctrl+C
+                cleanup();
+            }
+        });
+    } else {
+        console.log('\n  Press Ctrl+C to stop\n');
+    }
 }
 
 // === Entry point ===
