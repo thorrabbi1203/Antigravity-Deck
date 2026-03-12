@@ -28,15 +28,34 @@ async function detectLanguageServers() {
             const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
             cmd = `"${ps}" -ExecutionPolicy Bypass -NoProfile -File "${tmpScript}"`;
         } else {
-            cmd = `ps aux | grep 'csrf_token' | grep -v grep`;
+            cmd = `ps aux | grep 'language_server' | grep -v grep`;
         }
 
         exec(cmd, { timeout: 10000 }, (err, stdout) => {
+            // macOS/Linux fallback: if 'language_server' not found, try 'csrf_token'
+            // (Antigravity uses binary name 'antigravity_tools', not 'language_server')
+            if (platform !== 'win32' && (err || !stdout.trim())) {
+                exec(`ps aux | grep 'csrf_token' | grep -v grep`, { timeout: 10000 }, (err2, stdout2) => {
+                    if (err2 || !stdout2.trim()) {
+                        console.log('[!] Language server not found');
+                        resolve([]);
+                        return;
+                    }
+                    parseAndResolve(stdout2);
+                });
+                return;
+            }
+
             if (err || !stdout.trim()) {
                 console.log('[!] Language server not found');
                 resolve([]);
                 return;
             }
+
+            parseAndResolve(stdout);
+        });
+
+        function parseAndResolve(stdout) {
 
             const instances = [];
 
@@ -76,7 +95,7 @@ async function detectLanguageServers() {
                 console.log(`    PID: ${inst.pid}, CSRF: ${inst.csrfToken.substring(0, 8)}..., workspace: ${inst.workspaceId || 'none'}`);
             });
             resolve(instances);
-        });
+        }
     });
 }
 
