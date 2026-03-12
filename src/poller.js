@@ -143,27 +143,13 @@ async function pollNow() {
                     // Notify frontend to refresh conversation list (summary/title may have changed)
                     _broadcastAll({ type: 'conversations_updated' });
 
-                    // Invalidate step cache: LS takes time to finalize step content after cascade completes.
-                    // Delete cache — DO NOT re-cache immediately (LS stepCount is stale right now).
-                    // The +2s/+5s re-fetches below will re-populate with fresh finalized data.
-                    const postInst = info.inst || null;
+                    // Invalidate step cache: LS finalizes step content after cascade completes.
+                    // Delete cache so next set_conversation re-fetches fresh from LS.
                     delete stepCache[cascadeId];
-                    console.log(`[post-done] ${cascadeId.substring(0, 8)} cache invalidated — will re-fetch at +2s/+5s`);
-
-                    // Schedule re-fetch at +2s and +5s to catch LS finalization
-                    [2000, 5000].forEach(delay => {
-                        setTimeout(async () => {
-                            try {
-                                delete stepCache[cascadeId];
-                                await ensureCached(cascadeId, postInst);
-                                _broadcastAll({ type: 'conversations_updated' });
-                                console.log(`[post-done] ${cascadeId.substring(0, 8)} re-fetched at +${delay}ms`);
-                            } catch (e) { console.log(`[post-done] re-fetch error: ${e.message}`); }
-                        }, delay);
-                    });
+                    console.log(`[post-done] ${cascadeId.substring(0, 8)} cache invalidated`);
 
                     // Skip auto-cache and polling below — cache was just invalidated,
-                    // LS data is stale, will be re-fetched by scheduled timeouts
+                    // LS data is stale, will be re-fetched on next set_conversation
                     continue;
                 }
 
