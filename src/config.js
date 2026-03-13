@@ -18,7 +18,8 @@ const POLL_INTERVAL = 3000;
 const FAST_POLL_INTERVAL = 1000;  // Active cascade (running / waiting for user)
 const SLOW_POLL_INTERVAL = 5000;  // Idle
 const BATCH_SIZE = 200;
-const STEP_WINDOW_SIZE = 500;       // max steps to hold in memory per conversation
+const STEP_WINDOW_SIZE = 1500;      // max steps to hold in memory per conversation
+const INITIAL_LOAD_SIZE = 50;       // how many newest steps to fetch on first open
 const STEP_LOAD_CHUNK = 200;        // how many older steps to load on scroll-up
 
 // --- Persistent settings ---
@@ -107,7 +108,7 @@ function getBridgeSettings() { return loadBridgeSettings(); }
 module.exports = {
     lsConfig, lsInstances, platform, PORT,
     POLL_INTERVAL, FAST_POLL_INTERVAL, SLOW_POLL_INTERVAL, BATCH_SIZE,
-    STEP_WINDOW_SIZE, STEP_LOAD_CHUNK,
+    STEP_WINDOW_SIZE, INITIAL_LOAD_SIZE, STEP_LOAD_CHUNK,
     getSettings, saveSettings,
     getBridgeSettings, saveBridgeSettings,
 };

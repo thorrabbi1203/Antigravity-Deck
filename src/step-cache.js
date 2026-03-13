@@ -1,7 +1,7 @@
 // === Step Cache & Fetching ===
 // Manages the step cache, fetching steps (JSON + binary protobuf), and ensuring cached data.
 
-const { lsConfig, lsInstances, BATCH_SIZE, STEP_WINDOW_SIZE } = require('./config');
+const { lsConfig, lsInstances, BATCH_SIZE, STEP_WINDOW_SIZE, INITIAL_LOAD_SIZE } = require('./config');
 const { callApi } = require('./api');
 const { countBinarySteps, decodeBinarySteps } = require('./protobuf');
 
@@ -34,21 +34,33 @@ async function fetchAllSteps(convId, totalSteps, inst = null, fromIndex = 0) {
     const jsonSteps = jsonData.steps || [];
     const jsonCount = jsonSteps.length;
 
-    // Check if JSON returned enough (respects fromIndex or returned from 0)
+    // Check if JSON API ignored our fromIndex (returned from 0 instead)
     const expectedCount = maxSteps - fromIndex;
-    if (jsonCount >= expectedCount) {
-        return { steps: jsonSteps.slice(0, expectedCount), hasGaps: false };
+    const actualStartIndex = (jsonCount > expectedCount && jsonCount > 0 && fromIndex > 0) ? 0 : fromIndex;
+    
+    let usefulJsonSteps = [];
+    if (actualStartIndex === 0 && fromIndex > 0) {
+        // API started from 0. We only want steps from fromIndex onwards.
+        if (jsonCount > fromIndex) {
+            usefulJsonSteps = jsonSteps.slice(fromIndex);
+        }
+    } else {
+        // API respected fromIndex (or we asked from 0)
+        usefulJsonSteps = jsonSteps;
+    }
+    
+    const usefulCount = usefulJsonSteps.length;
+    if (usefulCount >= expectedCount) {
+        return { steps: usefulJsonSteps.slice(0, expectedCount), hasGaps: false };
     }
 
     // Step 2: Binary protobuf for remaining steps
     const { callApiBinary } = require('./api');
-    console.log(`[*] JSON returned ${jsonCount}/${expectedCount} steps (from ${fromIndex}). Using binary protobuf for remaining...`);
+    console.log(`[*] JSON returned ${usefulCount}/${expectedCount} useful steps (from ${fromIndex}). Using binary protobuf for remaining...`);
 
-    const allSteps = [...jsonSteps];
+    const allSteps = [...usefulJsonSteps];
     let hasGaps = false;
-    // Detect if JSON API ignored our fromIndex and returned from 0
-    const jsonActualStart = jsonCount > expectedCount ? 0 : fromIndex;
-    let binaryStart = jsonActualStart + jsonCount;
+    let binaryStart = fromIndex + usefulCount;
     let consecutiveEmptyRanges = 0;
     const MAX_EMPTY_RANGES = 5;
     const SUB_BATCH_SIZE = 50;
@@ -144,8 +156,8 @@ async function ensureCached(convId, inst = null) {
             const stepCount = await getStepCountAndStatus(convId, callFn).then(r => r.stepCount);
             console.log(`[*] Loading ${convId.substring(0, 8)} (stepCount: ${stepCount}, batches: ${Math.ceil(stepCount / BATCH_SIZE)})...`);
 
-            // Only fetch the tail window (last STEP_WINDOW_SIZE steps)
-            const baseIndex = Math.max(0, stepCount - STEP_WINDOW_SIZE);
+            // Only fetch the initial tail window (last INITIAL_LOAD_SIZE steps)
+            const baseIndex = Math.max(0, stepCount - INITIAL_LOAD_SIZE);
             const { steps, hasGaps } = await fetchAllSteps(convId, stepCount, inst, baseIndex);
             stepCache[convId] = { steps, stepCount, baseIndex };
             console.log(`[✓] Cached ${steps.length}/${stepCount} steps (window from ${baseIndex})${hasGaps ? ' (with gaps)' : ''}`);
