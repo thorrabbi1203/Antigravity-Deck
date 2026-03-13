@@ -109,6 +109,19 @@ const NESTED_FIELD_MAPS = {
     viewFile: { 1: 'absolutePathUri', 2: 'startLine', 3: 'endLine', 4: 'content', 11: 'numLines', 12: 'numBytes' },
 };
 
+// Known string fields — these MUST be decoded as strings, never as nested protobuf.
+// Without this, the looksLikeString heuristic can misidentify long text (especially
+// Vietnamese/Unicode) as nested protobuf, causing content truncation.
+const STRING_FIELDS = new Set([
+    'notificationContent', 'response', 'modifiedResponse', 'thinking',
+    'userResponse', 'content', 'taskName', 'taskStatus', 'taskSummary',
+    'taskSummaryWithCitations', 'description', 'commandLine',
+    'proposedCommandLine', 'cwd', 'commandId', 'url', 'resolvedUrl',
+    'absolutePathUri', 'directoryPathUri', 'documentId', 'task', 'result',
+    'recordingName', 'userIntent', 'sessionSummary',
+    'codeChangeSummary', 'markdownLanguage', 'messageId',
+]);
+
 // Count steps in a binary protobuf response (field 1 = repeated Step)
 function countBinarySteps(buf) {
     const reader = protobuf.Reader.create(buf);
@@ -254,7 +267,9 @@ function decodeGenericMessage(buf, fieldNameMap, depth = 0) {
                 const bytes = reader.bytes();
                 const sub = Buffer.from(bytes);
                 const s = sub.toString('utf-8');
-                if (looksLikeString(s, sub)) {
+                // If field name map says this is a known string field, force string decode
+                const knownStringField = fieldNameMap && STRING_FIELDS.has(fieldNameMap[fn]);
+                if (knownStringField || looksLikeString(s, sub)) {
                     value = s;
                 } else {
                     try {
@@ -290,13 +305,14 @@ function decodeGenericMessage(buf, fieldNameMap, depth = 0) {
 // Heuristic: check if bytes look like a UTF-8 string vs nested protobuf
 function looksLikeString(str, buf) {
     if (buf.length === 0) return true;
+    if (buf.length <= 3) return true; // very short bytes — treat as string
     let printable = 0;
     const len = Math.min(str.length, 200);
     for (let i = 0; i < len; i++) {
         const c = str.charCodeAt(i);
         if ((c >= 32 && c < 127) || c === 10 || c === 13 || c === 9 || (c >= 0x80 && c <= 0xffff)) printable++;
     }
-    return len > 0 && printable / len > 0.9;
+    return len > 0 && printable / len > 0.85;
 }
 
 module.exports = {
