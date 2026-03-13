@@ -138,12 +138,7 @@ export function useWebSocket() {
                 const steps = (data.steps as Step[]) || [];
                 const baseIndex = (data.baseIndex as number) ?? 0;
                 // Skip if data is identical (avoids unnecessary re-render from 30s fallback)
-                if (prev.steps.length === steps.length && prev.baseIndex === baseIndex && !prev.loadingOlder) {
-                    // Check if last step content changed (streaming/binary refresh)
-                    const prevLast = prev.steps[prev.steps.length - 1];
-                    const newLast = steps[steps.length - 1];
-                    if (prevLast && newLast && JSON.stringify(prevLast) === JSON.stringify(newLast)) return prev;
-                }
+                if (prev.steps.length === steps.length && prev.baseIndex === baseIndex && !prev.loadingOlder) return prev;
                 return {
                     ...prev,
                     steps,

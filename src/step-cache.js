@@ -36,19 +36,29 @@ async function fetchAllSteps(convId, totalSteps, inst = null, fromIndex = 0) {
 
     // Check if JSON returned enough (respects fromIndex or returned from 0)
     const expectedCount = maxSteps - fromIndex;
-    if (jsonCount >= expectedCount) {
+
+    // Detect if JSON API ignored our startIndex and returned from 0
+    // Symptom: we get MORE steps than the range we requested
+    // e.g. requested [600..1100] (500 steps) but got 598 steps starting from 0
+    const apiIgnoredStartIndex = fromIndex > 0 && jsonCount > expectedCount;
+
+    if (!apiIgnoredStartIndex && jsonCount >= expectedCount) {
         return { steps: jsonSteps.slice(0, expectedCount), hasGaps: false };
+    }
+
+    // If API ignored startIndex, discard JSON results — use binary protobuf for the full range
+    if (apiIgnoredStartIndex) {
+        console.log(`[!] JSON API ignored startIndex=${fromIndex}, returned ${jsonCount} steps from 0. Falling through to binary protobuf.`);
     }
 
     // Step 2: Binary protobuf for remaining steps
     const { callApiBinary } = require('./api');
     console.log(`[*] JSON returned ${jsonCount}/${expectedCount} steps (from ${fromIndex}). Using binary protobuf for remaining...`);
 
-    const allSteps = [...jsonSteps];
+    const allSteps = apiIgnoredStartIndex ? [] : [...jsonSteps];
     let hasGaps = false;
-    // Detect if JSON API ignored our fromIndex and returned from 0
-    const jsonActualStart = jsonCount > expectedCount ? 0 : fromIndex;
-    let binaryStart = jsonActualStart + jsonCount;
+    // When API ignored startIndex, start binary from our original requested position
+    let binaryStart = apiIgnoredStartIndex ? fromIndex : fromIndex + jsonCount;
     let consecutiveEmptyRanges = 0;
     const MAX_EMPTY_RANGES = 5;
     const SUB_BATCH_SIZE = 50;
