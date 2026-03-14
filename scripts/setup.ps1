@@ -2,12 +2,14 @@
 # Usage: irm https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/setup.ps1 | iex
 
 $ErrorActionPreference = "Stop"
-$REPO = "https://github.com/tysonnbt/Antigravity-Deck.git"
-$DIR  = "Antigravity-Deck"
+$REPO        = "https://github.com/tysonnbt/Antigravity-Deck.git"
+$INSTALL_DIR = Join-Path $env:LOCALAPPDATA "AntigravityDeck"
 
 Write-Host ""
 Write-Host "  Antigravity Deck -- One-Command Setup" -ForegroundColor Cyan
 Write-Host "  ======================================" -ForegroundColor DarkGray
+Write-Host ""
+Write-Host "  Install location: $INSTALL_DIR" -ForegroundColor DarkGray
 Write-Host ""
 
 # --- Check prerequisites ---
@@ -93,8 +95,8 @@ Write-Host ""
 $scenario = "fresh"       # fresh | up-to-date | updated
 $updatedFiles = @()
 
-if (Test-Path "$DIR\.git") {
-    Push-Location $DIR
+if (Test-Path "$INSTALL_DIR\.git") {
+    Push-Location $INSTALL_DIR
 
     # Save current commit hash before pull
     $hashBefore = (git rev-parse HEAD 2>$null)
@@ -147,11 +149,12 @@ if (Test-Path "$DIR\.git") {
 }
 else {
     Write-Host "  [i] First time setup -- cloning repository..." -ForegroundColor Cyan
-    git clone $REPO $DIR
+    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+    git clone $REPO $INSTALL_DIR
     Write-Host "  [OK] Cloned successfully" -ForegroundColor Green
 }
 
-Push-Location $DIR
+Push-Location $INSTALL_DIR
 
 # === Smart dependency install ===
 $needBackendDeps  = $false
@@ -196,7 +199,7 @@ switch ($scenario) {
         if (-not (Test-Path "node_modules")) {
             $needBackendDeps = $true
         }
-        if (-not (Test-Path "frontend\node_modules")) {
+        if (-not (Test-Path "frontend/node_modules")) {
             $needFrontendDeps = $true
         }
     }
