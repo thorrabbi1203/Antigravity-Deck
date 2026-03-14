@@ -5,11 +5,13 @@
 set -e
 
 REPO="https://github.com/tysonnbt/Antigravity-Deck.git"
-DIR="Antigravity-Deck"
+INSTALL_DIR="$HOME/.antigravity-deck"
 
 echo ""
 echo "  🔮 Antigravity Deck — One-Command Setup"
 echo "  ========================================"
+echo ""
+echo "  Install location: $INSTALL_DIR"
 echo ""
 
 # --- Check prerequisites ---
@@ -75,8 +77,8 @@ echo ""
 scenario="fresh"       # fresh | up-to-date | updated
 updated_files=""
 
-if [ -d "$DIR/.git" ]; then
-    cd "$DIR"
+if [ -d "$INSTALL_DIR/.git" ]; then
+    cd "$INSTALL_DIR"
 
     # Save current commit hash before pull
     hash_before=$(git rev-parse HEAD 2>/dev/null || echo "")
@@ -111,8 +113,9 @@ if [ -d "$DIR/.git" ]; then
     fi
 else
     echo "  📥 First time setup — cloning repository..."
-    git clone "$REPO" "$DIR"
-    cd "$DIR"
+    mkdir -p "$INSTALL_DIR"
+    git clone "$REPO" "$INSTALL_DIR"
+    cd "$INSTALL_DIR"
     echo "  ✅ Cloned successfully"
 fi
 
@@ -152,10 +155,10 @@ case "$scenario" in
         ;;
     "up-to-date")
         # Check if node_modules exist (maybe user deleted them)
-        if [ ! -d "node_modules" ]; then
+        if [ ! -d "$INSTALL_DIR/node_modules" ]; then
             need_backend_deps=true
         fi
-        if [ ! -d "frontend/node_modules" ]; then
+        if [ ! -d "$INSTALL_DIR/frontend/node_modules" ]; then
             need_frontend_deps=true
         fi
         ;;
