@@ -266,6 +266,7 @@ export function ChatView({ steps, baseIndex = 0, stepCount = 0, loadingOlder = f
         // Use a short delay to let the DOM render the new steps first
         const timer = setTimeout(() => {
             bottomRef.current?.scrollIntoView({ behavior: 'instant' });
+            inputRef.current?.focus();
         }, 50);
         return () => clearTimeout(timer);
     }, [currentConvId]);
