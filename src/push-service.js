@@ -105,9 +105,12 @@ async function sendPushToAll(payload) {
             webpush.sendNotification(sub, message).catch(err => {
                 // Log every failure with details so we can diagnose iOS/APNs issues
                 const endpointShort = sub.endpoint?.split('/').pop()?.substring(0, 20) || '?';
-                console.warn(`[Push] ⚠️  Failed to send to ...${endpointShort}: HTTP ${err.statusCode || '?'} — ${err.body || err.message || err}`);
-                // 404 or 410 = subscription expired/invalid → remove
-                if (err.statusCode === 404 || err.statusCode === 410) {
+                const body = err.body ? (typeof err.body === 'string' ? err.body : JSON.stringify(err.body)) : err.message || String(err);
+                console.warn(`[Push] ⚠️  Failed to send to ...${endpointShort}: HTTP ${err.statusCode || '?'} — ${body}`);
+                // 404/410 = expired/unregistered; 401/403 = VAPID key mismatch (e.g. BadJwtToken from Apple APNs)
+                // All of these mean the subscription is permanently invalid — remove it.
+                if (err.statusCode === 404 || err.statusCode === 410 ||
+                    err.statusCode === 401 || err.statusCode === 403) {
                     expiredEndpoints.push(sub.endpoint);
                 }
                 throw err;
