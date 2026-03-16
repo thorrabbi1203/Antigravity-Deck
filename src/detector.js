@@ -143,24 +143,49 @@ async function detectPorts(pid) {
     });
 }
 
-// Try HTTPS first (LS typically uses self-signed cert), then fall back to HTTP
+// Try Connect protocol (gRPC-Web/JSON) on all address variants.
+// Fix for issue #68: Windows LS may bind ::1 (IPv6) instead of 127.0.0.1 (IPv4).
+// NOTE: pure gRPC/HTTP2 probe is intentionally omitted — api.js uses HTTP/1.1 fetch()
+// and cannot make HTTP/2 calls. If the LS truly runs pure gRPC, that requires a
+// separate HTTP/2 client layer in api.js (tracked as a follow-up).
 async function findApiPort(ports, csrfToken) {
     if (!ports || !ports.length || !csrfToken) return null;
     const headers = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken };
     for (const port of ports) {
+        // 1. HTTPS Connect — IPv4 (most common on macOS/Linux)
         try {
             const agent = new https.Agent({ rejectUnauthorized: false });
             const res = await fetch(`https://127.0.0.1:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
                 method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000), agent
             });
-            if (res.ok) { console.log(`[✓] API responding on port ${port} (HTTPS)`); return { port, useTls: true }; }
-        } catch (e) { }
+            if (res.ok) { console.log(`[✓] API on port ${port} (HTTPS/IPv4)`); return { port, useTls: true }; }
+        } catch { }
+
+        // 2. HTTP Connect — localhost (OS-dependent: may be IPv4 or IPv6)
         try {
             const res = await fetch(`http://localhost:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
                 method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000)
             });
-            if (res.ok) { console.log(`[✓] API responding on port ${port} (HTTP)`); return { port, useTls: false }; }
-        } catch (e) { }
+            if (res.ok) { console.log(`[✓] API on port ${port} (HTTP/localhost)`); return { port, useTls: false }; }
+        } catch { }
+
+        // 3. HTTPS Connect — IPv6 loopback
+        // Fix #68: Windows 11 LS may bind ::1 instead of 127.0.0.1
+        try {
+            const agent = new https.Agent({ rejectUnauthorized: false });
+            const res = await fetch(`https://[::1]:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
+                method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000), agent
+            });
+            if (res.ok) { console.log(`[✓] API on port ${port} (HTTPS/IPv6)`); return { port, useTls: true }; }
+        } catch { }
+
+        // 4. HTTP Connect — IPv6 loopback
+        try {
+            const res = await fetch(`http://[::1]:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
+                method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000)
+            });
+            if (res.ok) { console.log(`[✓] API on port ${port} (HTTP/IPv6)`); return { port, useTls: false }; }
+        } catch { }
     }
     return null;
 }
