@@ -95,6 +95,7 @@ async function pollNow() {
                             status,
                             trajectoryId: info.trajectoryId,
                             stepCount: info.stepCount || 0,
+                            summary: info.summary || '',
                             inst,
                         });
                     }
