@@ -44,7 +44,6 @@ function getStaticLsBinaryPath() {
             path.join(programFiles, 'Antigravity', ...binRelPath, 'language_server_windows_x64.exe'),
             path.join(localAppData, 'Programs', 'Antigravity', ...binRelPath, 'language_server.exe'),
             path.join(localAppData, 'Programs', 'Windsurf', ...binRelPath, 'language_server_windows_x64.exe'),
-            path.join(programFiles, 'Windsurf', ...binRelPath, 'language_server_windows_x64.exe'),
             path.join(localAppData, 'Programs', 'Windsurf', ...binRelPath, 'language_server.exe'),
         ];
         for (const p of candidates) {
