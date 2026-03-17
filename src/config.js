@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
     defaultModel: 'MODEL_PLACEHOLDER_M26', // Claude Opus 4.6 (Thinking)
     activeProfile: null,   // string | null — currently active profile name for profile swap
     profilesDir: null,     // string | null — custom profiles directory (default: %APPDATA%/AntigravityDeck/profiles)
+    lsBinaryPath: '',
 };
 
 let _settings = null;

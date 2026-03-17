@@ -15,42 +15,84 @@ const execAsync = promisify(exec);
 // Track headless processes for cleanup: pid → { child, pipeServer, pipePath }
 const headlessProcesses = new Map();
 
-// LS binary path (platform-specific)
-function getLsBinaryPath() {
+async function detectLsBinaryFromProcess() {
+    try {
+        if (platform === 'win32') {
+            const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+            const cmd = `Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server*' } | Select-Object -First 1 -ExpandProperty ExecutablePath`;
+            const result = await execAsync(`"${ps}" -NoProfile -Command "${cmd}"`, { encoding: 'utf8', timeout: 10000 });
+            const detected = (result.stdout || '').trim();
+            if (detected && fs.existsSync(detected)) return detected;
+        } else {
+            const result = await execAsync(`ps aux | grep 'language_server' | grep -v grep | head -1`, { encoding: 'utf8', timeout: 5000 });
+            const out = (result.stdout || '').trim();
+            const match = out.match(/(\/\S*language_server\S*)/);
+            if (match && fs.existsSync(match[1])) return match[1];
+        }
+    } catch { }
+    return null;
+}
+
+function getStaticLsBinaryPath() {
+    const binRelPath = ['resources', 'app', 'extensions', 'antigravity', 'bin'];
+
     if (platform === 'win32') {
-        return path.join(
-            process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'),
-            'Programs', 'Antigravity', 'resources', 'app', 'extensions', 'antigravity', 'bin',
-            'language_server_windows_x64.exe'
-        );
-    } else if (platform === 'darwin') {
-        const base = '/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin';
+        const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+        const programFiles = process.env.PROGRAMFILES || 'C:\\Program Files';
         const candidates = [
-            path.join(base, 'language_server_macos_arm'),
-            path.join(base, 'language_server_macos_x64'),
-            path.join(base, 'language_server'),
+            path.join(localAppData, 'Programs', 'Antigravity', ...binRelPath, 'language_server_windows_x64.exe'),
+            path.join(programFiles, 'Antigravity', ...binRelPath, 'language_server_windows_x64.exe'),
+            path.join(localAppData, 'Programs', 'Antigravity', ...binRelPath, 'language_server.exe'),
+            path.join(localAppData, 'Programs', 'Windsurf', ...binRelPath, 'language_server_windows_x64.exe'),
+            path.join(localAppData, 'Programs', 'Windsurf', ...binRelPath, 'language_server.exe'),
         ];
         for (const p of candidates) {
             if (fs.existsSync(p)) return p;
         }
-        return candidates[0]; // will fail at launch with descriptive error
+        return candidates[0];
+    } else if (platform === 'darwin') {
+        const candidates = [
+            ...['language_server_macos_arm', 'language_server_macos_x64', 'language_server'].map(
+                bin => path.join('/Applications/Antigravity.app/Contents/Resources/app/extensions/antigravity/bin', bin)
+            ),
+            ...['language_server_macos_arm', 'language_server_macos_x64', 'language_server'].map(
+                bin => path.join('/Applications/Windsurf.app/Contents/Resources/app/extensions/antigravity/bin', bin)
+            ),
+        ];
+        for (const p of candidates) {
+            if (fs.existsSync(p)) return p;
+        }
+        return candidates[0];
     } else {
-        // Linux — try common paths
         const home = os.homedir();
         const candidates = [
-            path.join(home, '.local', 'share', 'Antigravity', 'resources', 'app', 'extensions', 'antigravity', 'bin', 'language_server'),
+            path.join(home, '.local', 'share', 'Antigravity', ...binRelPath, 'language_server'),
             '/usr/share/antigravity/resources/app/extensions/antigravity/bin/language_server',
+            path.join(home, '.local', 'share', 'Windsurf', ...binRelPath, 'language_server'),
+            '/usr/share/windsurf/resources/app/extensions/antigravity/bin/language_server',
         ];
         for (const p of candidates) {
             if (fs.existsSync(p)) return p;
         }
-        return candidates[0]; // will fail at launch with descriptive error
+        return candidates[0];
     }
 }
 
+async function getLsBinaryPath() {
+    const { getSettings } = require('./config');
+    const settings = getSettings();
+    if (settings.lsBinaryPath && fs.existsSync(settings.lsBinaryPath)) {
+        return settings.lsBinaryPath;
+    }
+
+    const detected = await detectLsBinaryFromProcess();
+    if (detected) return detected;
+
+    return getStaticLsBinaryPath();
+}
+
 // Extension path (for protobuf metadata)
-function getExtensionPath() {
-    const lsBin = getLsBinaryPath();
+function getExtensionPath(lsBin) {
     return path.dirname(path.dirname(lsBin)); // up from bin/ to antigravity/
 }
 
@@ -67,7 +109,7 @@ async function getExtensionServer() {
             const result = await execAsync(`ps aux | grep 'language_server' | grep -v grep | head -1`, { encoding: 'utf8', timeout: 5000 });
             out = (result.stdout || '').trim();
         }
-        
+
         const portMatch = out.match(/--extension_server_port\s+(\d+)/);
         const csrfMatch = out.match(/--extension_server_csrf_token\s+([\w-]+)/);
         if (portMatch && csrfMatch) {
@@ -94,14 +136,25 @@ function encStr(fieldNum, val) {
     return Buffer.concat([Buffer.from(parts), buf]);
 }
 
-function buildMetadata() {
+function buildMetadata(extensionPath) {
+    let ideVersion = '1.0.0';
+    try {
+        const appRoot = path.dirname(path.dirname(extensionPath));
+        const pkgPath = path.join(appRoot, 'package.json');
+        if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+            if (pkg.version) ideVersion = pkg.version;
+        }
+    } catch { }
+
     return Buffer.concat([
         encStr(1, 'Antigravity'),           // ideName
-        encStr(2, '1.0.0'),                 // ideVersion
+        encStr(2, ideVersion),              // ideVersion
         encStr(3, 'Antigravity'),           // extensionName
-        encStr(4, getExtensionPath()),      // extensionPath
+        encStr(4, extensionPath),           // extensionPath
         encStr(5, 'en'),                    // locale
         encStr(6, crypto.randomUUID()),     // deviceFingerprint
+        encStr(7, ideVersion),              // extensionVersion (same as ideVersion)
     ]);
 }
 
@@ -201,8 +254,8 @@ async function findApiPort(ports, csrfToken) {
 //  MAIN: Launch a headless LS for a given workspace folder
 // ====================================================================
 async function launchHeadlessLS(folderPath) {
-    // 1. Validate LS binary exists
-    const lsBin = getLsBinaryPath();
+    // 1. Validate LS binary exists (async — detects from running process first)
+    const lsBin = await getLsBinaryPath();
     if (!fs.existsSync(lsBin)) {
         throw new Error(`LS binary not found: ${lsBin}`);
     }
@@ -268,7 +321,7 @@ async function launchHeadlessLS(folderPath) {
     ];
 
     // 7. Spawn LS
-    const metadata = buildMetadata();
+    const metadata = buildMetadata(getExtensionPath(lsBin));
     const child = spawn(lsBin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
     child.stdin.write(metadata);
     child.stdin.end();
