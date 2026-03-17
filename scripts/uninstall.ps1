@@ -1,5 +1,5 @@
 # === Antigravity Deck -- Uninstall (Windows PowerShell) ===
-# Usage: irm https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/uninstall.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/uninstall.ps1 | iex
 
 $ErrorActionPreference = "SilentlyContinue"
 $INSTALL_DIR = Join-Path $env:LOCALAPPDATA "AntigravityDeck"

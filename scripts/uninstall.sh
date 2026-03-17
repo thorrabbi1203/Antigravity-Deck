@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # === Antigravity Deck — Uninstall (macOS / Linux) ===
-# Usage: curl -sL https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/uninstall.sh | bash
+# Usage: curl -sL https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/uninstall.sh | bash
 
 INSTALL_DIR="$HOME/.antigravity-deck"
 

@@ -97,12 +97,12 @@ Connect external AI agents (e.g., Pi, OpenClaw) to Antigravity via Discord.
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/setup.ps1 | iex
+irm https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/setup.ps1 | iex
 ```
 
 **macOS / Linux:**
 ```bash
-curl -sL https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/setup.sh | bash
+curl -sL https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/setup.sh | bash
 ```
 
 > **Prerequisites:** [Node.js 18+](https://nodejs.org/), [Git](https://git-scm.com/), and [cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/). The setup script will check and guide you if anything is missing.
@@ -113,12 +113,12 @@ To remove Antigravity Deck (stops any running instance automatically):
 
 **Windows:**
 ```powershell
-irm https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/uninstall.ps1 | iex
 ```
 
 **macOS / Linux:**
 ```bash
-curl -sL https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/uninstall.sh | bash
+curl -sL https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/uninstall.sh | bash
 ```
 
 ### Local Development
@@ -171,19 +171,19 @@ AUTH_KEY=your-secret-key npm run dev
 
 ## ⚡ Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Node.js + Express 4 |
-| WebSocket | ws 8 |
-| Protobuf | protobufjs 8 |
-| Frontend | Next.js 16 (Turbopack) + React 19 |
-| Components | shadcn/ui (Radix UI) |
-| Styling | Tailwind CSS 4 |
-| Source Control | @git-diff-view |
-| Markdown | react-markdown + rehype-highlight |
-| Discord | discord.js 14 |
-| Language | TypeScript 5 (FE) / JavaScript (BE) |
-| Tunnel | cloudflared |
+| Layer          | Technology                          |
+| -------------- | ----------------------------------- |
+| Backend        | Node.js + Express 4                 |
+| WebSocket      | ws 8                                |
+| Protobuf       | protobufjs 8                        |
+| Frontend       | Next.js 16 (Turbopack) + React 19   |
+| Components     | shadcn/ui (Radix UI)                |
+| Styling        | Tailwind CSS 4                      |
+| Source Control | @git-diff-view                      |
+| Markdown       | react-markdown + rehype-highlight   |
+| Discord        | discord.js 14                       |
+| Language       | TypeScript 5 (FE) / JavaScript (BE) |
+| Tunnel         | cloudflared                         |
 
 ---
 

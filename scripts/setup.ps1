@@ -1,8 +1,8 @@
 # === Antigravity Deck -- One-Command Setup (Windows PowerShell) ===
-# Usage: irm https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/setup.ps1 | iex
+# Usage: irm https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/setup.ps1 | iex
 
 $ErrorActionPreference = "Stop"
-$REPO        = "https://github.com/tysonnbt/Antigravity-Deck.git"
+$REPO        = "https://github.com/thorrabbi1203/Antigravity-Deck.git"
 $INSTALL_DIR = Join-Path $env:LOCALAPPDATA "AntigravityDeck"
 
 Write-Host ""

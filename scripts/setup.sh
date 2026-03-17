@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # === Antigravity Deck — One-Command Setup (macOS / Linux) ===
-# Usage: curl -sL https://raw.githubusercontent.com/tysonnbt/Antigravity-Deck/main/scripts/setup.sh | bash
+# Usage: curl -sL https://raw.githubusercontent.com/thorrabbi1203/Antigravity-Deck/main/scripts/setup.sh | bash
 
 set -e
 
-REPO="https://github.com/tysonnbt/Antigravity-Deck.git"
+REPO="https://github.com/thorrabbi1203/Antigravity-Deck.git"
 INSTALL_DIR="$HOME/.antigravity-deck"
 
 echo ""
