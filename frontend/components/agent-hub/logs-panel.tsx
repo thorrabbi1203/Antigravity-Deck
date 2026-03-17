@@ -12,7 +12,7 @@ import type { AgentLogEntry } from '@/lib/agent-api';
 const MAX_LOG_ENTRIES = 500;
 
 const TRANSPORT_FILTERS = ['All', 'Discord', 'WS', 'HTTP', 'UI'] as const;
-const LEVEL_FILTERS = ['All', 'Info', 'Error'] as const;
+const LEVEL_FILTERS = ['All', 'Info', 'Warn', 'Error'] as const;
 
 function getTransportFilter(transport: string): string {
     if (transport === 'discord') return 'Discord';
@@ -23,6 +23,7 @@ function getTransportFilter(transport: string): string {
 
 function getLevelFilter(logType: string): string {
     if (logType === 'error') return 'Error';
+    if (logType === 'warn' || logType === 'warning') return 'Warn';
     return 'Info';
 }
 

@@ -68,7 +68,8 @@ export interface AgentLogEntry {
 export async function fetchAgentSessions(): Promise<AgentSessionInfo[]> {
     const res = await fetch(`${API_BASE}/api/agent/sessions`, { headers: authHeaders() });
     if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
-    return res.json();
+    const data = await res.json();
+    return data.sessions ?? data;
 }
 
 export async function destroyAgentSession(sessionId: string): Promise<void> {

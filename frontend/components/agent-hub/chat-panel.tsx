@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, memo } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -85,6 +85,17 @@ export function AgentChatPanel({ agentWs, workspaces }: ChatPanelProps) {
         agentWs.send(text);
         setInputText('');
     };
+
+    const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+    const handleDisconnect = useCallback(() => {
+        if (!confirmingDisconnect) {
+            setConfirmingDisconnect(true);
+            setTimeout(() => setConfirmingDisconnect(false), 3000);
+            return;
+        }
+        setConfirmingDisconnect(false);
+        agentWs.disconnect();
+    }, [confirmingDisconnect, agentWs]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -227,9 +238,10 @@ export function AgentChatPanel({ agentWs, workspaces }: ChatPanelProps) {
                         <RefreshCw className="h-3 w-3 mr-0.5" /> New Cascade
                     </Button>
                     <div className="flex-1" />
-                    <Button variant="ghost" size="sm" className="h-6 text-[9px] px-1.5 text-red-400/60 hover:text-red-400"
-                        onClick={agentWs.disconnect}>
-                        <Unplug className="h-3 w-3 mr-0.5" /> Disconnect
+                    <Button variant="ghost" size="sm"
+                        className={cn('h-6 text-[9px] px-1.5', confirmingDisconnect ? 'text-red-400 font-medium' : 'text-red-400/60 hover:text-red-400')}
+                        onClick={handleDisconnect}>
+                        <Unplug className="h-3 w-3 mr-0.5" /> {confirmingDisconnect ? 'Confirm?' : 'Disconnect'}
                     </Button>
                 </div>
             </div>
