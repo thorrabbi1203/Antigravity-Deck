@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Users, MessageSquare, Settings2, ScrollText } from 'lucide-react';
+import { Users, MessageSquare, Settings2, ScrollText, Cable } from 'lucide-react';
 import { useAgentWs } from '@/hooks/use-agent-ws';
 import { AgentSessionsPanel } from '@/components/agent-hub/sessions-panel';
 import { AgentChatPanel } from '@/components/agent-hub/chat-panel';
 import { AgentConfigPanel } from '@/components/agent-hub/config-panel';
 import { AgentLogsPanel } from '@/components/agent-hub/logs-panel';
+import { AgentConnectPanel } from '@/components/agent-hub/connect-panel';
 import { API_BASE } from '@/lib/config';
 import { authHeaders } from '@/lib/auth';
 
@@ -60,6 +61,9 @@ export function AgentHubView() {
                     <TabsTrigger value="logs" className="text-[10px] h-6 gap-1 px-2 data-[state=active]:bg-muted/10">
                         <ScrollText className="h-3 w-3" /> Logs
                     </TabsTrigger>
+                    <TabsTrigger value="connect" className="text-[10px] h-6 gap-1 px-2 data-[state=active]:bg-muted/10">
+                        <Cable className="h-3 w-3" /> Connect
+                    </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="sessions" className="flex-1 min-h-0 m-0">
@@ -76,6 +80,10 @@ export function AgentHubView() {
 
                 <TabsContent value="logs" className="flex-1 min-h-0 m-0 relative">
                     <AgentLogsPanel />
+                </TabsContent>
+
+                <TabsContent value="connect" className="flex-1 min-h-0 m-0">
+                    <AgentConnectPanel />
                 </TabsContent>
             </Tabs>
         </div>
