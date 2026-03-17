@@ -233,4 +233,42 @@ module.exports = function setupAgentApiRoutes(app) {
             res.status(500).json({ error: e.message });
         }
     });
+
+    // ── Tunnel Info ─────────────────────────────────────────────────────────
+
+    app.get('/api/tunnel-info', (req, res) => {
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            // .tunnel-info.txt lives at project root (parent of src/)
+            const infoPath = path.join(__dirname, '..', '..', '.tunnel-info.txt');
+            if (!fs.existsSync(infoPath)) {
+                return res.json({ active: false });
+            }
+            const raw = fs.readFileSync(infoPath, 'utf-8');
+            const lines = raw.split('\n').filter(Boolean);
+            const parsed = {};
+            for (const line of lines) {
+                const [key, ...rest] = line.split(/:\s+/);
+                const val = rest.join(': ').trim();
+                const k = key.trim().toLowerCase().replace(/\s+/g, '');
+                if (k === 'frontend') parsed.frontend = val;
+                else if (k === 'backend') parsed.backend = val;
+                else if (k === 'authkey') parsed.authKey = val;
+                else if (k === 'qrurl') parsed.qrUrl = val;
+                else if (k === 'localfe') parsed.localFe = val;
+                else if (k === 'localbe') parsed.localBe = val;
+                else if (k === 'started') parsed.started = val;
+            }
+            // Derive Agent WS URL from backend
+            if (parsed.backend) {
+                const wsUrl = parsed.backend.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+                parsed.wsAgent = `${wsUrl}/ws/agent`;
+            }
+            parsed.active = !!(parsed.backend && parsed.frontend);
+            res.json(parsed);
+        } catch (e) {
+            res.json({ active: false, error: e.message });
+        }
+    });
 };
