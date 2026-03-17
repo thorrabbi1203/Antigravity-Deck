@@ -43,7 +43,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Settings, User, Plug, Book, Globe, Moon, Sun, Plus, FolderOpen, FolderPlus, EllipsisVertical, Activity, Bot, FolderSync, Loader2, Circle, GitBranch, Terminal, Monitor } from "lucide-react"
+import { Settings, User, Plug, Book, Globe, Moon, Sun, Plus, FolderOpen, FolderPlus, EllipsisVertical, Activity, Bot, FolderSync, Loader2, Circle, GitBranch, Terminal, Monitor, Cable } from "lucide-react"
 
 import { WorkspaceGroup } from "./sidebar/workspace-group"
 import type { ConvSummary, WorkspaceData } from "./sidebar/workspace-group"
@@ -60,6 +60,7 @@ interface AppSidebarProps {
     onShowSettings: () => void
     onShowLogs: () => void
     onShowAgentHub: () => void
+    onShowConnect: () => void
     onShowSourceControl: () => void
     onShowResources: () => void
     onGoHome: () => void
@@ -79,6 +80,7 @@ export function AppSidebar({
     onShowSettings,
     onShowLogs,
     onShowAgentHub,
+    onShowConnect,
     onShowSourceControl,
     onShowResources,
     onGoHome,
@@ -454,6 +456,25 @@ export function AppSidebar({
                             </SidebarGroup>
                         </>
                     )}
+                    <SidebarSeparator className="mx-0" />
+                    <SidebarGroup>
+                        <SidebarGroupContent>
+                            <SidebarMenu>
+                                <SidebarMenuItem>
+                                    <SidebarMenuButton onClick={onShowAgentHub} tooltip="Agent Hub" className="text-xs">
+                                        <Bot className="shrink-0" />
+                                        <span>Agent Hub</span>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                                <SidebarMenuItem>
+                                    <SidebarMenuButton onClick={onShowConnect} tooltip="Connect" className="text-xs">
+                                        <Cable className="shrink-0" />
+                                        <span>Connect</span>
+                                    </SidebarMenuButton>
+                                </SidebarMenuItem>
+                            </SidebarMenu>
+                        </SidebarGroupContent>
+                    </SidebarGroup>
                 </SidebarContent>
 
                 <SidebarFooter>
@@ -500,10 +521,6 @@ export function AppSidebar({
                                     <DropdownMenuItem onClick={onShowLogs}>
                                         <Activity className="mr-2 h-4 w-4" />
                                         <span>Live Logs</span>
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={onShowAgentHub}>
-                                        <Bot className="mr-2 h-4 w-4" />
-                                        <span>Agent Hub</span>
                                     </DropdownMenuItem>
                                     <DropdownMenuItem onClick={onShowSourceControl}>
                                         <GitBranch className="mr-2 h-4 w-4" />
