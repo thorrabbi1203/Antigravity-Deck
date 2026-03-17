@@ -261,6 +261,9 @@ class OrchestratorSession extends EventEmitter {
             requiredSlots: this._plan ? (this._plan.subtasks || []).length : 0,
             availableSlots: sessionManager.getAvailableSlots(),
             recentEvents: this._events.slice(-50),
+            chatHistory: this.chatHistory.slice(-50),
+            plannerBusy: !!(this._plannerSession?.isBusy),
+            orchRunId: this._orchRunId,
         };
     }
 
@@ -487,6 +490,24 @@ Respond with JSON:
         await this._drainChatQueue();
     }
 
+    async _drainChatQueue() {
+        if (this._draining) return;
+        this._draining = true;
+
+        try {
+            while (this._chatQueue.length > 0) {
+                const { message, intent, replyTo } = this._chatQueue.shift();
+                try {
+                    await this.chat(message, { intent, replyTo });
+                } catch (err) {
+                    this._addLog('error', `Queue drain error: ${err.message}`);
+                }
+            }
+        } finally {
+            this._draining = false;
+        }
+    }
+
     // ── Main entry point ─────────────────────────────────────────
 
     async start() {
@@ -516,7 +537,7 @@ Respond with JSON:
         // ANALYZING: Send task to planner
         this._setState(STATES.ANALYZING);
         this._addLog('system', 'Analyzing task with planner cascade...');
-        this.emit('orch_started', { orchestrationId: this.id, state: this._state });
+        this.emit('orch_started', { orchestrationId: this._orchRunId || this.id, state: this._state });
 
         let plannerResponse;
         try {
@@ -560,7 +581,7 @@ Respond with JSON:
 
         this._plan = plan;
         this.emit('orch_analysis', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             planType: plan.type,
             subtaskCount: plan.subtasks ? plan.subtasks.length : 0,
             reason: plan.reason || null,
@@ -573,7 +594,7 @@ Respond with JSON:
             this._completedAt = Date.now();
             this._cleanupOrchestration();
             this.emit('orch_completed', {
-                orchestrationId: this.id,
+                orchestrationId: this._orchRunId || this.id,
                 summary: plan.response || '',
                 results: {},
             });
@@ -629,12 +650,12 @@ Respond with JSON:
         this._addLog('system', `Plan ready: ${plan.subtasks.length} subtasks, strategy: ${plan.strategy}`);
 
         this.emit('orch_plan', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             plan: this._plan,
             requiredSlots: plan.subtasks.length,
             availableSlots: sessionManager.getAvailableSlots(),
         });
-        this.emit('orch_awaiting_approval', { orchestrationId: this.id });
+        this.emit('orch_awaiting_approval', { orchestrationId: this._orchRunId || this.id });
     }
 
     _detectFileOverlap(subtasks) {
@@ -661,7 +682,7 @@ Respond with JSON:
         }
 
         this.emit('orch_failed', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             reason,
             partialResults,
         });
@@ -682,12 +703,12 @@ Respond with JSON:
 
         this._setState(STATES.EXECUTING);
         this._addLog('system', 'Execution started');
-        this.emit('orch_executing', { orchestrationId: this.id });
+        this.emit('orch_executing', { orchestrationId: this._orchRunId || this.id });
 
         this._progressInterval = setInterval(() => {
             if (this._state === STATES.EXECUTING || this._state === STATES.RECOVERING) {
                 this.emit('orch_progress', {
-                    orchestrationId: this.id,
+                    orchestrationId: this._orchRunId || this.id,
                     progress: this._progress(),
                     elapsed: this._elapsed(),
                 });
@@ -703,7 +724,7 @@ Respond with JSON:
 
                 await this._executePhase(phase, phaseIdx);
 
-                const failCount = Array.from(this._subtasks.values()).filter(s => s.state === 'failed').length;
+                const failCount = Array.from(this._subtasks.values()).filter(s => s.state === 'failed' && !s.cancelledByUser).length;
                 const total = this._subtasks.size;
                 if (failCount / total > this._config.failureThreshold) {
                     return this._fail(`Failure threshold exceeded: ${failCount}/${total} tasks failed`);
@@ -714,7 +735,7 @@ Respond with JSON:
                     return st && st.state === 'completed';
                 });
                 this.emit('orch_phase_complete', {
-                    orchestrationId: this.id,
+                    orchestrationId: this._orchRunId || this.id,
                     phase: phaseIdx,
                     completedTasks,
                 });
@@ -774,7 +795,7 @@ Respond with JSON:
         st.state = 'running';
         st.startedAt = Date.now();
         this._addLog('system', `Subtask ${taskId} started: "${this._truncate(st.definition.description, 80)}"`, taskId);
-        this.emit('orch_subtask_update', { orchestrationId: this.id, taskId, state: 'running' });
+        this.emit('orch_subtask_update', { orchestrationId: this._orchRunId || this.id, taskId, state: 'running' });
 
         try {
             st.session = sessionManager.createSession({
@@ -788,7 +809,7 @@ Respond with JSON:
             this._addLog('error', `Cannot create session for ${taskId}: ${e.message}`, taskId);
             st.state = 'failed';
             st.result = `Session creation failed: ${e.message}`;
-            this.emit('orch_subtask_update', { orchestrationId: this.id, taskId, state: 'failed', result: st.result });
+            this.emit('orch_subtask_update', { orchestrationId: this._orchRunId || this.id, taskId, state: 'failed', result: st.result });
             return;
         }
 
@@ -837,7 +858,7 @@ Respond with JSON:
         st.completedAt = Date.now();
         this._addLog('system', `Subtask ${taskId} completed (${st.completedAt - st.startedAt}ms)`, taskId);
         this.emit('orch_subtask_update', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             taskId,
             state: 'completed',
             result: this._truncate(result.text, 500),
@@ -867,13 +888,13 @@ Respond with JSON:
             st.result = `Failed after ${st.retries} retries. Last error: ${reason}`;
             st.completedAt = Date.now();
             this._addLog('error', `Subtask ${taskId} failed permanently: ${reason}`, taskId);
-            this.emit('orch_subtask_update', { orchestrationId: this.id, taskId, state: 'failed', result: st.result });
+            this.emit('orch_subtask_update', { orchestrationId: this._orchRunId || this.id, taskId, state: 'failed', result: st.result });
             return;
         }
 
         st.state = 'retrying';
         this._addLog('warning', `Subtask ${taskId} retrying (${st.retries}/${this._config.maxRetries}): ${reason}`, taskId);
-        this.emit('orch_subtask_update', { orchestrationId: this.id, taskId, state: 'retrying' });
+        this.emit('orch_subtask_update', { orchestrationId: this._orchRunId || this.id, taskId, state: 'retrying' });
 
         await new Promise(r => setTimeout(r, this._config.retryDelayMs));
 
@@ -910,7 +931,7 @@ Respond with JSON:
                             st.result = followUp.text;
                             st.completedAt = Date.now();
                             this.emit('orch_subtask_update', {
-                                orchestrationId: this.id, taskId, state: 'completed',
+                                orchestrationId: this._orchRunId || this.id, taskId, state: 'completed',
                                 result: this._truncate(followUp.text, 500),
                             });
                             return;
@@ -930,7 +951,7 @@ Respond with JSON:
                 st.completedAt = Date.now();
                 st.clarificationQuestion = null;
                 if (st.session && !st.session.destroyed) { st.session.destroy(); st.session = null; }
-                this.emit('orch_subtask_update', { orchestrationId: this.id, taskId, state: 'failed', result: st.result });
+                this.emit('orch_subtask_update', { orchestrationId: this._orchRunId || this.id, taskId, state: 'failed', result: st.result });
             }
         }, CLARIFICATION_TIMEOUT);
 
@@ -938,7 +959,7 @@ Respond with JSON:
         st.clarificationQuestion = questionText;
         this._addLog('system', `Escalating clarification for ${taskId} to user`, taskId);
         this.emit('orch_clarification', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             taskId,
             question: questionText,
         });
@@ -955,7 +976,7 @@ Respond with JSON:
         st.state = 'running';
         st.clarificationQuestion = null;
         this._addLog('system', `User answered clarification for ${taskId}`, taskId);
-        this.emit('orch_subtask_update', { orchestrationId: this.id, taskId, state: 'running' });
+        this.emit('orch_subtask_update', { orchestrationId: this._orchRunId || this.id, taskId, state: 'running' });
 
         try {
             const result = await st.session.sendMessage(answer);
@@ -964,7 +985,7 @@ Respond with JSON:
                 st.result = result.text;
                 st.completedAt = Date.now();
                 this.emit('orch_subtask_update', {
-                    orchestrationId: this.id, taskId, state: 'completed',
+                    orchestrationId: this._orchRunId || this.id, taskId, state: 'completed',
                     result: this._truncate(result.text, 500),
                 });
             } else {
@@ -980,7 +1001,7 @@ Respond with JSON:
     async _review() {
         this._setState(STATES.REVIEWING);
         this._addLog('system', 'Reviewing subtask results...');
-        this.emit('orch_review', { orchestrationId: this.id, decisions: [] });
+        this.emit('orch_review', { orchestrationId: this._orchRunId || this.id, decisions: [] });
 
         const resultsSummary = [];
         for (const [taskId, st] of this._subtasks) {
@@ -1047,7 +1068,7 @@ Respond with JSON:
         }
 
         this.emit('orch_review', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             decisions: review.decisions || [],
         });
 
@@ -1103,7 +1124,7 @@ Respond with JSON:
         const rejected = Array.from(this._subtasks.values()).filter(s => s.reviewDecision === 'rejected').length;
 
         this.emit('orch_completed', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             summary: `${accepted} accepted, ${rejected} rejected, ${this._subtasks.size} total. Elapsed: ${this._elapsed()}ms`,
             results,
         });
@@ -1136,6 +1157,32 @@ Respond with JSON:
         }
     }
 
+    // ── Cancel subtask ───────────────────────────────────────────
+
+    async _cancelSubtask(taskId) {
+        const st = this._subtasks.get(taskId);
+        if (!st || st.state === 'completed' || st.state === 'failed') return;
+
+        if (st.session && !st.session.destroyed) {
+            await st.session.destroy();
+            st.session = null;
+        }
+
+        st.state = 'failed';
+        st.result = 'Cancelled by user';
+        st.cancelledByUser = true;
+        st.completedAt = Date.now();
+
+        this.emit('orch_subtask_update', {
+            orchestrationId: this._orchRunId || this.id,
+            taskId,
+            state: 'failed',
+            result: 'Cancelled by user'
+        });
+
+        this._addLog('system', `Subtask ${taskId} cancelled by user`);
+    }
+
     // ── Cancel ───────────────────────────────────────────────────
 
     async cancel() {
@@ -1158,7 +1205,7 @@ Respond with JSON:
         }
 
         this.emit('orch_cancelled', {
-            orchestrationId: this.id,
+            orchestrationId: this._orchRunId || this.id,
             partialResults,
         });
     }
@@ -1217,7 +1264,7 @@ Respond with JSON:
             this._setState(STATES.AWAITING_APPROVAL);
 
             this.emit('orch_plan', {
-                orchestrationId: this.id,
+                orchestrationId: this._orchRunId || this.id,
                 plan: this._plan,
                 requiredSlots: (newPlan.subtasks || []).length,
                 availableSlots: sessionManager.getAvailableSlots(),
