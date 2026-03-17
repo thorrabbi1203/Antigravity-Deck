@@ -194,4 +194,43 @@ module.exports = function setupAgentApiRoutes(app) {
     app.get('/api/agent/sessions', (req, res) => {
         res.json({ sessions: sessionManager.listSessions() });
     });
+
+    // ── Agent API Settings ──────────────────────────────────────────────────
+
+    app.get('/api/agent-api/settings', (req, res) => {
+        try {
+            const { getAgentApiSettings } = require('../config');
+            res.json(getAgentApiSettings());
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+
+    app.put('/api/agent-api/settings', (req, res) => {
+        try {
+            const { saveAgentApiSettings } = require('../config');
+            const body = req.body || {};
+
+            // Validate types
+            if (body.maxConcurrentSessions != null && (typeof body.maxConcurrentSessions !== 'number' || body.maxConcurrentSessions < 1 || body.maxConcurrentSessions > 20)) {
+                return res.status(400).json({ error: 'maxConcurrentSessions must be 1-20' });
+            }
+            if (body.sessionTimeoutMs != null && (typeof body.sessionTimeoutMs !== 'number' || body.sessionTimeoutMs < 60000 || body.sessionTimeoutMs > 86400000)) {
+                return res.status(400).json({ error: 'sessionTimeoutMs must be 60000-86400000' });
+            }
+            if (body.defaultStepSoftLimit != null && (typeof body.defaultStepSoftLimit !== 'number' || body.defaultStepSoftLimit < 10 || body.defaultStepSoftLimit > 10000)) {
+                return res.status(400).json({ error: 'defaultStepSoftLimit must be 10-10000' });
+            }
+
+            const updated = saveAgentApiSettings(body);
+
+            // Apply to running SessionManager immediately
+            const sessionManager = require('../agent-session-manager');
+            sessionManager.configure(body);
+
+            res.json(updated);
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
 };
