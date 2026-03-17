@@ -371,9 +371,9 @@ Frontend listens for `type: 'agent_sessions'` messages and dispatches by `event`
 
 Accept optional `transport` field in the `connect` message (default: `'websocket'`). The Chat panel sends `transport: 'websocket-ui'` to distinguish itself from external agents.
 
-### 5. Consolidate `_resolveLsInst` helper
+### 5. Consolidate `_resolveLsInst` helper — ✅ DONE
 
-Currently duplicated across `ws-agent.js`, `agent-api.js`, and `agent-session-manager.js`. Extract to a shared utility in `src/ls-utils.js` or similar.
+Already extracted to `src/ls-utils.js` in a previous commit. All three files now import from shared utility.
 
 ---
 
