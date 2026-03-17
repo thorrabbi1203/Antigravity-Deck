@@ -55,7 +55,7 @@ function setupAgentWebSocket(agentWss) {
                             workspace: msg.workspace,
                             cascadeId: msg.cascadeId,
                             stepSoftLimit: msg.stepSoftLimit,
-                            transport: 'websocket',
+                            transport: msg.transport || 'websocket',
                         });
 
                         // Wire session events → WebSocket messages
