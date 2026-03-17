@@ -19,3 +19,4 @@ pr_comment.md
 settings copy.json
 
 push-subscriptions.json
+start-named-tunnel.js
