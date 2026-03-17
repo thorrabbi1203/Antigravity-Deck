@@ -45,7 +45,7 @@ export function OrchestratorPanel({ workspace: externalWorkspace, workspaces: ex
                 const res = await fetch(`${API_BASE}/api/workspaces`, { headers: authHeaders() });
                 if (res.ok) {
                     const data = await res.json();
-                    const names = Array.isArray(data) ? data.map((w: { name?: string }) => w.name || '').filter(Boolean) : [];
+                    const names = Array.isArray(data) ? data.map((w: { name?: string; workspaceName?: string }) => w.name || w.workspaceName || '').filter(Boolean) : [];
                     setInternalWorkspaces(names);
                     if (names.length > 0 && !internalWorkspace) setInternalWorkspace(names[0]);
                 }

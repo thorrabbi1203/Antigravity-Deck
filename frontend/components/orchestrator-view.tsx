@@ -31,7 +31,7 @@ export function OrchestratorView() {
                 if (res.ok) {
                     const data = await res.json();
                     const names = Array.isArray(data)
-                        ? data.map((w: { name?: string }) => w.name || '').filter(Boolean)
+                        ? data.map((w: { name?: string; workspaceName?: string }) => w.name || w.workspaceName || '').filter(Boolean)
                         : [];
                     setWorkspaces(names);
                     if (names.length > 0 && !workspace) setWorkspace(names[0]);
