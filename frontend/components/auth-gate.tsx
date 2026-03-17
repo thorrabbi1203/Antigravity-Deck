@@ -19,25 +19,65 @@ export function AuthGate({ children }: AuthGateProps) {
 
     // Client-side auth check after hydration (avoids SSR mismatch)
     useEffect(() => {
-        // Extract ?key= from URL first — must run before any early returns
+        // Extract auth params from URL first — must run before any early returns
         // so that localhost:9808/?key=... correctly saves the key
         const urlParams = new URLSearchParams(window.location.search);
-        const urlKey = urlParams.get('key');
-        if (urlKey) {
-            // Strip key from URL immediately (security: don't leave in browser history)
+        const urlOtp = urlParams.get('otp');
+        const urlKey = urlParams.get('key'); // legacy fallback
+
+        if (urlOtp || urlKey) {
+            // Strip auth params from URL immediately (security: don't leave in browser history)
             const cleanUrl = new URL(window.location.href);
+            cleanUrl.searchParams.delete('otp');
             cleanUrl.searchParams.delete('key');
             window.history.replaceState({}, '', cleanUrl.toString());
-            // Save key to localStorage so all subsequent API calls use it
-            setAuthKey(urlKey.trim());
         }
 
         if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            if (urlKey) {
+                setAuthKey(urlKey.trim()); // Save key even on localhost
+            }
             setAuthenticated(true);
             return;
         }
 
-        const savedKey = urlKey || getAuthKey();
+        if (urlOtp || urlKey) {
+            setChecking(true);
+
+            if (urlOtp) {
+                // OTP flow: exchange one-time token for real AUTH_KEY
+                fetch(`${API_BASE}/api/auth/exchange`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ otp: urlOtp }),
+                }).then(res => {
+                    if (!res.ok) throw new Error('OTP invalid');
+                    return res.json();
+                }).then(data => {
+                    if (data.authKey) {
+                        setAuthKey(data.authKey);
+                        setAuthenticated(true);
+                    }
+                }).catch(() => {
+                    setError('QR code expired or already used');
+                }).finally(() => setChecking(false));
+            } else if (urlKey) {
+                // Legacy flow: validate key directly against backend
+                fetch(`${API_BASE}/api/settings`, {
+                    headers: { 'X-Auth-Key': urlKey.trim() }
+                }).then(res => {
+                    if (res.ok) {
+                        setAuthKey(urlKey.trim());
+                        setAuthenticated(true);
+                    }
+                }).catch(() => {
+                    // Network error — show auth gate
+                }).finally(() => setChecking(false));
+            }
+            return;
+        }
+
+        const savedKey = getAuthKey();
         if (!savedKey) {
             // No key anywhere — show login form
             return;

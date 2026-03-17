@@ -124,6 +124,13 @@ export function useWebSocket() {
             // Don't clear swapping yet — wait for detected=true from detector
         });
 
+        const offStepsLoading = wsService.on('steps_loading', (data) => {
+            setState(prev => {
+                if (data.conversationId && data.conversationId !== prev.currentConvId) return prev;
+                return { ...prev, loadingOlder: true };
+            });
+        });
+
         const offStepsInit = wsService.on('steps_init', (data) => {
             setState(prev => {
                 if (data.conversationId && data.conversationId !== prev.currentConvId) return prev;
@@ -133,7 +140,8 @@ export function useWebSocket() {
 
                 // Merge: if same base+length, only update steps that actually changed
                 // Prevents visible re-render on auto-refresh after cascade completion
-                if (prev.baseIndex === incomingBase && prev.steps.length === incoming.length) {
+                // Skip if data is identical (avoids unnecessary re-render from 30s fallback)
+                if (prev.baseIndex === incomingBase && prev.steps.length === incoming.length && !prev.loadingOlder) {
                     let anyChanged = false;
                     const merged = prev.steps.map((oldStep, i) => {
                         if (i >= incoming.length - 5 && JSON.stringify(oldStep) !== JSON.stringify(incoming[i])) {
@@ -143,7 +151,7 @@ export function useWebSocket() {
                         return oldStep;
                     });
                     if (!anyChanged) return prev;
-                    return { ...prev, steps: merged, stepCount: incomingCount, lastUpdate: new Date().toLocaleTimeString() };
+                    return { ...prev, steps: merged, stepCount: incomingCount, loadingOlder: false, lastUpdate: new Date().toLocaleTimeString() };
                 }
 
                 // Different base/length — full replacement (initial load, conversation switch)
@@ -152,6 +160,7 @@ export function useWebSocket() {
                     steps: incoming,
                     baseIndex: incomingBase,
                     stepCount: incomingCount,
+                    loadingOlder: false,
                     lastUpdate: new Date().toLocaleTimeString(),
                 };
             });
@@ -178,21 +187,18 @@ export function useWebSocket() {
                 }
                 const newSteps = (data.steps as Step[]) || [];
                 if (newSteps.length === 0) return prev;
-                // Dedup: only append steps beyond current length
-                const currentLen = prev.steps.length;
-                const expectedStart = data.total ? (data.total as number) - newSteps.length : currentLen;
-                const skipCount = Math.max(0, currentLen - expectedStart);
+                // Server-absolute dedup: total is now server-absolute end position
+                const serverTotal = (data.total as number) || 0;
+                const feTotal = prev.baseIndex + prev.steps.length;
+                const newStartsAt = serverTotal - newSteps.length;
+                const skipCount = Math.max(0, feTotal - newStartsAt);
                 const actualNew = newSteps.slice(skipCount);
-                console.log(`[WS] steps_new: ${newSteps.length} incoming, currentLen=${currentLen}, total=${data.total}, expectedStart=${expectedStart}, skipCount=${skipCount}, actualNew=${actualNew.length}`);
+                console.log(`[WS] steps_new: ${newSteps.length} incoming, feTotal=${feTotal}, serverTotal=${serverTotal}, newStartsAt=${newStartsAt}, skipCount=${skipCount}, actualNew=${actualNew.length}`);
                 if (actualNew.length === 0) return prev;
-                // Update stepCount from backend metadata
-                const newStepCount = data.baseIndex !== undefined
-                    ? ((data.baseIndex as number) + ((data.total as number) || (currentLen + actualNew.length)))
-                    : prev.stepCount + actualNew.length;
                 return {
                     ...prev,
                     steps: [...prev.steps, ...actualNew],
-                    stepCount: newStepCount,
+                    stepCount: serverTotal,
                     lastUpdate: new Date().toLocaleTimeString(),
                 };
             });
@@ -245,6 +251,7 @@ export function useWebSocket() {
             offClose();
             offStatus();
             offSwapComplete();
+            offStepsLoading();
             offStepsInit();
             offStepsNew();
             offStepUpdated();
