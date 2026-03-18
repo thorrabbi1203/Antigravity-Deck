@@ -389,9 +389,7 @@ class OrchestratorSession extends EventEmitter {
         } else if (parsed.type === 'orchestrated') {
             this._activeOrchestration = true;
             this._orchRunId = crypto.randomUUID();
-            this._plan = parsed;
-            this._setState('AWAITING_APPROVAL');
-            this.emit('orch_plan', { orchestrationId: this._orchRunId, plan: parsed });
+            this._preparePlan(parsed);
         } else {
             const response = result.text || 'Unable to process request';
             this.chatHistory.push({ role: 'assistant', content: response, timestamp: Date.now(), messageType: 'text' });
@@ -601,7 +599,15 @@ Respond with JSON:
             return;
         }
 
-        // ORCHESTRATED: Validate and prepare plan
+        // ORCHESTRATED: Validate, initialize subtasks, emit plan
+        this._preparePlan(plan);
+    }
+
+    /**
+     * Validate plan, initialize subtask state, set AWAITING_APPROVAL, emit events.
+     * Shared by both start() and _classifyAndRespond() orchestrated paths.
+     */
+    _preparePlan(plan) {
         if (!plan.subtasks || plan.subtasks.length === 0) {
             return this._fail('Planner returned orchestrated plan with no subtasks');
         }
@@ -630,6 +636,7 @@ Respond with JSON:
         }
 
         // Initialize subtask state
+        this._subtasks.clear();
         for (const def of plan.subtasks) {
             this._subtasks.set(def.id, {
                 definition: def,
@@ -1233,42 +1240,11 @@ Respond with JSON:
             const newPlan = this._parseJson(response.text);
 
             if (newPlan.type === 'orchestrated' && newPlan.subtasks) {
-                if (newPlan.subtasks.length > this._config.maxSubtasks) {
-                    newPlan.subtasks = newPlan.subtasks.slice(0, this._config.maxSubtasks);
-                }
-                if (newPlan.strategy === 'parallel') {
-                    const overlap = this._detectFileOverlap(newPlan.subtasks);
-                    if (overlap) newPlan.strategy = 'sequential';
-                }
-                if (!newPlan.phases || newPlan.phases.length === 0) {
-                    if (newPlan.strategy === 'sequential') {
-                        newPlan.phases = newPlan.subtasks.map(t => [t.id]);
-                    } else {
-                        newPlan.phases = [newPlan.subtasks.map(t => t.id)];
-                    }
-                }
+                this._preparePlan(newPlan);
+            } else {
+                this._plan = newPlan;
+                this._setState(STATES.AWAITING_APPROVAL);
             }
-
-            this._subtasks.clear();
-            if (newPlan.subtasks) {
-                for (const def of newPlan.subtasks) {
-                    this._subtasks.set(def.id, {
-                        definition: def, session: null, state: 'pending', result: null,
-                        retries: 0, startedAt: null, completedAt: null,
-                        reviewDecision: null, clarificationQuestion: null, clarificationRounds: 0,
-                    });
-                }
-            }
-
-            this._plan = newPlan;
-            this._setState(STATES.AWAITING_APPROVAL);
-
-            this.emit('orch_plan', {
-                orchestrationId: this._orchRunId || this.id,
-                plan: this._plan,
-                requiredSlots: (newPlan.subtasks || []).length,
-                availableSlots: sessionManager.getAvailableSlots(),
-            });
         } catch (e) {
             this._setState(STATES.AWAITING_APPROVAL);
             throw e;
