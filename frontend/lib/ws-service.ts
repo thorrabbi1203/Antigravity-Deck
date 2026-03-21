@@ -101,6 +101,7 @@ class WebSocketService {
             this.ws = ws;
 
             ws.onopen = () => {
+                if (ws !== this.ws) return; // stale socket — replaced by newer connect()
                 console.log('[WS-Service] connected');
                 this._connected = true;
                 // Subscribe to all events so backend sends messages for ALL conversations
@@ -110,6 +111,7 @@ class WebSocketService {
             };
 
             ws.onmessage = (event) => {
+                if (ws !== this.ws) return; // stale socket
                 try {
                     const data = JSON.parse(event.data);
                     const type = data.type as string;
@@ -125,6 +127,7 @@ class WebSocketService {
             };
 
             ws.onclose = () => {
+                if (ws !== this.ws) return; // stale socket — force-closed for reconnect, skip
                 console.log('[WS-Service] disconnected');
                 this._connected = false;
                 this.emit('__ws_close', {});
