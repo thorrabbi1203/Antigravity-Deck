@@ -4,6 +4,18 @@ Full-featured workspace dashboard for [Antigravity](https://codeium.com/antigrav
 
 ---
 
+## 📸 Screenshots
+
+| Dashboard | Workspace Conversations |
+|:-:|:-:|
+| ![Dashboard](docs/images/dashboard-desktop.png) | ![Workspace](docs/images/workspace-conversations.png) |
+
+| Conversation View | Mobile |
+|:-:|:-:|
+| ![Conversation](docs/images/conversation-desktop.png) | ![Mobile](docs/images/conversation-mobile.png) |
+
+---
+
 ## ✨ Feature Highlights
 
 ### 💬 Chat & Conversations
