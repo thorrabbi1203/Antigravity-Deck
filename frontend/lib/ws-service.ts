@@ -16,6 +16,9 @@ class WebSocketService {
     private listeners = new Map<string, Set<WSListener>>(); // type → listeners
     private wildcardListeners = new Set<WSListener>(); // receive ALL messages
     private _connected = false;
+    private visibilityBound = false;
+    private hiddenAt = 0; // timestamp when tab was last hidden
+    private static STALE_THRESHOLD = 5000; // 5s hidden → assume WS is stale
 
     get connected() { return this._connected; }
 
@@ -41,6 +44,54 @@ class WebSocketService {
 
     /** Connect (idempotent — safe to call multiple times) */
     async connect() {
+        // Bind visibilitychange once — reconnect immediately when tab resumes
+        if (!this.visibilityBound && typeof document !== 'undefined') {
+            this.visibilityBound = true;
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') {
+                    this.hiddenAt = Date.now();
+                    return;
+                }
+                // visible again
+                const hiddenDuration = Date.now() - this.hiddenAt;
+                console.log(`[WS-Service] tab visible — was hidden ${hiddenDuration}ms`);
+
+                // If hidden long enough, WS is likely stale even if readyState says OPEN
+                if (hiddenDuration > WebSocketService.STALE_THRESHOLD && this.ws) {
+                    console.log('[WS-Service] stale socket — force reconnect');
+                    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+                    this.reconnectTimer = null;
+                    try { this.ws.close(); } catch { /* ignore */ }
+                    this.ws = null;
+                    this._connected = false;
+                    this.connect();
+                    return;
+                }
+
+                // Short hide — only reconnect if WS is actually dead
+                if (!this.ws || this.ws.readyState === WebSocket.CLOSED || this.ws.readyState === WebSocket.CLOSING) {
+                    console.log('[WS-Service] connection dead — reconnecting immediately');
+                    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+                    this.reconnectTimer = null;
+                    this.connect();
+                }
+            });
+            // Also handle the freeze/resume Page Lifecycle events (mobile browsers)
+            document.addEventListener('freeze', () => {
+                console.log('[WS-Service] page frozen by browser');
+                // Clean close so we don't get stuck in CLOSING state
+                if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+                this.reconnectTimer = null;
+                try { this.ws?.close(); } catch { /* ignore */ }
+                this.ws = null;
+                this._connected = false;
+            });
+            document.addEventListener('resume', () => {
+                console.log('[WS-Service] page resumed — reconnecting');
+                this.connect();
+            });
+        }
+
         if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
             return; // already connected or connecting
         }
@@ -77,12 +128,17 @@ class WebSocketService {
                 console.log('[WS-Service] disconnected');
                 this._connected = false;
                 this.emit('__ws_close', {});
-                this.reconnectTimer = setTimeout(() => this.connect(), 2000);
+                // Only auto-reconnect if page is visible (don't waste resources in background)
+                if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                    this.reconnectTimer = setTimeout(() => this.connect(), 2000);
+                }
             };
 
             ws.onerror = () => ws.close();
         } catch {
-            this.reconnectTimer = setTimeout(() => this.connect(), 2000);
+            if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+                this.reconnectTimer = setTimeout(() => this.connect(), 2000);
+            }
         }
     }
 
