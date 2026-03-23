@@ -345,10 +345,9 @@ export default function Home() {
   }, []);
 
   // Called when a conversation is deleted from the sidebar.
-  // Bumps wsVersion so ConversationList (Recent/Pinned) reloads immediately.
-  // Also navigates away if the deleted conversation is currently open.
+  // Navigates away if the deleted conversation is currently open.
+  // No need to bump wsVersion — app-sidebar's loadAll() already re-fetches.
   const handleConvDeleted = useCallback((_convId: string, _wsName: string) => {
-    setWsVersion(v => v + 1);
     if (currentConvId === _convId) {
       selectConversation(null);
       setNewChatMode(false);

@@ -83,11 +83,12 @@ export function WorkspaceGroup({
         // Optimistically close the dialog immediately for snappy UX
         setDeleteTarget(null)
         try {
-            await fetch(`${API_BASE}/api/cascade/${targetId}`, {
+            const res = await fetch(`${API_BASE}/api/cascade/${targetId}`, {
                 method: 'DELETE',
                 headers: authHeaders(),
             })
-            // Notify parent to remove from list right away
+            if (!res.ok) throw new Error(`Delete failed: ${res.status}`)
+            // Notify parent after successful deletion
             onDeleted?.(targetId, data.workspace.workspaceName)
         } catch (err) {
             console.error('Failed to delete conversation:', err)

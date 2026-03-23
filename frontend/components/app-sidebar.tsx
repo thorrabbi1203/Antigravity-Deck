@@ -294,7 +294,7 @@ export function AppSidebar({
                     }
                 })
             )
-            // Notify page.tsx so ConversationList (Recent/Pinned panel) also refreshes
+            // Notify page.tsx so it can navigate away if viewing the deleted conv
             onConvDeleted?.(convId, wsName)
             // Re-fetch in the background to ensure full consistency
             loadAll()
