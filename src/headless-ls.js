@@ -7,6 +7,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { exec, spawn } = require('child_process');
 const { promisify } = require('util');
+const http = require('http');
 const https = require('https');
 const { lsInstances, platform } = require('./config');
 
@@ -207,47 +208,82 @@ async function waitForPorts(pid, timeoutMs = 15000) {
 }
 
 // --- Call LS API (for workspace binding) ---
-async function callLsApi(port, csrfToken, useTls, method, body = {}) {
-    const protocol = useTls ? 'https' : 'http';
-    const host = useTls ? '127.0.0.1' : 'localhost';
-    const opts = {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Connect-Protocol-Version': '1',
-            'X-Codeium-Csrf-Token': csrfToken,
-        },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(5000),
-    };
-    if (useTls) opts.agent = new https.Agent({ rejectUnauthorized: false });
-    const res = await fetch(`${protocol}://${host}:${port}/exa.language_server_pb.LanguageServerService/${method}`, opts);
-    if (!res.ok) throw new Error(`API ${method} failed: ${res.status}`);
-    return res.json();
+// Fix #86: use http/https.request() — native fetch() ignores https.Agent
+function callLsApi(port, csrfToken, useTls, method, body = {}) {
+    return new Promise((resolve, reject) => {
+        const host = useTls ? '127.0.0.1' : 'localhost';
+        const data = JSON.stringify(body);
+        const transport = useTls ? https : http;
+        const req = transport.request({
+            hostname: host, port,
+            path: `/exa.language_server_pb.LanguageServerService/${method}`,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Connect-Protocol-Version': '1',
+                'X-Codeium-Csrf-Token': csrfToken,
+                'Content-Length': Buffer.byteLength(data),
+            },
+            timeout: 5000,
+            rejectUnauthorized: false,
+        }, (res) => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c.toString()));
+            res.on('end', () => {
+                if (res.statusCode >= 400) { reject(new Error(`API ${method} failed: ${res.statusCode}`)); return; }
+                try { resolve(JSON.parse(chunks.join(''))); }
+                catch (e) { reject(new Error(`API parse error: ${e.message}`)); }
+            });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error(`API ${method} timeout`)); });
+        req.write(data);
+        req.end();
+    });
 }
 
 // --- Find which port is the API port (HTTPS or HTTP) ---
-async function findApiPort(ports, csrfToken) {
-    for (const port of ports) {
-        try {
-            const agent = new https.Agent({ rejectUnauthorized: false });
-            const res = await fetch(`https://127.0.0.1:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
+// Fix #86: use http/https.request() — native fetch() ignores https.Agent
+function findApiPort(ports, csrfToken) {
+    const headers = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken };
+    const endpoint = '/exa.language_server_pb.LanguageServerService/GetUserStatus';
+
+    function probe(url, timeoutMs = 3000) {
+        return new Promise((resolve, reject) => {
+            const parsed = new URL(url);
+            const isHttps = parsed.protocol === 'https:';
+            const transport = isHttps ? https : http;
+            const data = '{}';
+            const req = transport.request({
+                hostname: parsed.hostname.replace(/^\[|\]$/g, ''), port: parsed.port, path: parsed.pathname,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken },
-                body: '{}', signal: AbortSignal.timeout(3000), agent
+                headers: { ...headers, 'Content-Length': Buffer.byteLength(data) },
+                timeout: timeoutMs,
+                rejectUnauthorized: false,
+            }, (res) => {
+                res.resume();
+                resolve({ ok: res.statusCode >= 200 && res.statusCode < 300 });
             });
-            if (res.ok) return { port, useTls: true };
-        } catch { }
-        try {
-            const res = await fetch(`http://localhost:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken },
-                body: '{}', signal: AbortSignal.timeout(3000)
-            });
-            if (res.ok) return { port, useTls: false };
-        } catch { }
+            req.on('error', reject);
+            req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+            req.write(data);
+            req.end();
+        });
     }
-    return null;
+
+    return (async () => {
+        for (const port of ports) {
+            try {
+                const res = await probe(`https://127.0.0.1:${port}${endpoint}`);
+                if (res.ok) return { port, useTls: true };
+            } catch { }
+            try {
+                const res = await probe(`http://localhost:${port}${endpoint}`);
+                if (res.ok) return { port, useTls: false };
+            } catch { }
+        }
+        return null;
+    })();
 }
 
 // ====================================================================

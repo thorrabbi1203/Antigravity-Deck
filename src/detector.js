@@ -1,10 +1,48 @@
 // === Language Server Auto-Detection ===
 const { exec } = require('child_process');
+const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { lsConfig, lsInstances, platform } = require('./config');
+
+// Node 18+ native fetch() (Undici) silently ignores https.Agent — rejectUnauthorized
+// never takes effect. Use http/https.request() directly so self-signed certs work.
+function connectPost(url, headers, body, timeoutMs = 3000) {
+    return new Promise((resolve, reject) => {
+        const parsed = new URL(url);
+        const isHttps = parsed.protocol === 'https:';
+        const transport = isHttps ? https : http;
+        const opts = {
+            hostname: parsed.hostname.replace(/^\[|\]$/g, ''), // strip IPv6 brackets
+            port: parsed.port,
+            path: parsed.pathname,
+            method: 'POST',
+            headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
+            timeout: timeoutMs,
+        };
+        if (isHttps) opts.rejectUnauthorized = false;
+
+        const req = transport.request(opts, (res) => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c.toString()));
+            res.on('end', () => {
+                resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode,
+                    statusText: res.statusMessage,
+                    text: () => Promise.resolve(chunks.join('')),
+                    json: () => Promise.resolve(JSON.parse(chunks.join(''))),
+                });
+            });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('TimeoutError')); });
+        req.write(body);
+        req.end();
+    });
+}
 
 // Lazy-load to avoid circular dependency (headless-ls requires config which is loaded here)
 let _isHeadlessPid = null;
@@ -145,9 +183,8 @@ async function detectPorts(pid) {
 
 // Try Connect protocol (gRPC-Web/JSON) on all address variants.
 // Fix for issue #68: Windows LS may bind ::1 (IPv6) instead of 127.0.0.1 (IPv4).
-// NOTE: pure gRPC/HTTP2 probe is intentionally omitted — api.js uses HTTP/1.1 fetch()
-// and cannot make HTTP/2 calls. If the LS truly runs pure gRPC, that requires a
-// separate HTTP/2 client layer in api.js (tracked as a follow-up).
+// Fix for issue #86: Uses connectPost() instead of fetch() — native fetch() silently
+// ignores https.Agent so rejectUnauthorized never took effect on self-signed certs.
 async function findApiPort(ports, csrfToken) {
     if (!ports || !ports.length || !csrfToken) return null;
     const headers = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken };
@@ -164,9 +201,7 @@ async function findApiPort(ports, csrfToken) {
         console.log(`[~] Probing port ${port} (${probes.length} strategies)...`);
         for (const probe of probes) {
             try {
-                const opts = { method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000) };
-                if (probe.tls) opts.agent = new https.Agent({ rejectUnauthorized: false });
-                const res = await fetch(probe.url(port), opts);
+                const res = await connectPost(probe.url(port), headers, '{}', 3000);
                 if (res.ok) {
                     console.log(`[✓] API on port ${port} (${probe.label})`);
                     return { port, useTls: probe.tls };
@@ -186,14 +221,8 @@ async function getWorkspaceInfo(port, csrfToken, useTls, workspaceId) {
     try {
         const protocol = useTls ? 'https' : 'http';
         const host = useTls ? '127.0.0.1' : 'localhost';
-        const opts = {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken },
-            body: '{}',
-            signal: AbortSignal.timeout(5000)
-        };
-        if (useTls) opts.agent = new https.Agent({ rejectUnauthorized: false });
-        const res = await fetch(`${protocol}://${host}:${port}/exa.language_server_pb.LanguageServerService/GetWorkspaceInfos`, opts);
+        const headers = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken };
+        const res = await connectPost(`${protocol}://${host}:${port}/exa.language_server_pb.LanguageServerService/GetWorkspaceInfos`, headers, '{}', 5000);
         if (!res.ok) return { name: 'unknown', category: 'workspace', folderUri: null };
         const data = await res.json();
         const uris = (data.workspaceInfos || []).map(w => w.workspaceUri);

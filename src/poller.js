@@ -426,36 +426,42 @@ async function startCascadeSSE() {
 
     console.log('[SSE] Connecting to StreamCascadeReactiveUpdates...');
     try {
-        const fetchOpts = {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Connect-Protocol-Version': '1',
-                'X-Codeium-Csrf-Token': sseInst.csrfToken,
-            },
-            body: JSON.stringify({}),
-            signal: sseAbortController.signal,
-        };
-        if (sseInst.useTls) {
-            const https = require('https');
-            fetchOpts.agent = new https.Agent({ rejectUnauthorized: false });
-        }
-        const res = await fetch(url, fetchOpts);
-        if (!res.ok) {
-            console.log(`[SSE] HTTP ${res.status} — streaming not available`);
+        // Fix #86: use http/https.request() — native fetch() ignores https.Agent
+        const transport = sseInst.useTls ? require('https') : require('http');
+        const parsed = new URL(url);
+        const data = JSON.stringify({});
+        const sseRes = await new Promise((resolve, reject) => {
+            const req = transport.request({
+                hostname: parsed.hostname, port: parsed.port, path: parsed.pathname,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Connect-Protocol-Version': '1',
+                    'X-Codeium-Csrf-Token': sseInst.csrfToken,
+                    'Content-Length': Buffer.byteLength(data),
+                },
+                rejectUnauthorized: false,
+            }, resolve);
+            req.on('error', reject);
+            // Wire abort controller to destroy the request
+            sseAbortController.signal.addEventListener('abort', () => req.destroy());
+            req.write(data);
+            req.end();
+        });
+        if (sseRes.statusCode >= 400) {
+            console.log(`[SSE] HTTP ${sseRes.statusCode} — streaming not available`);
+            sseRes.resume();
             return;
         }
         console.log('[SSE] ✓ Connected');
 
-        const reader = res.body?.getReader();
-        if (!reader) return;
         const decoder = new TextDecoder();
         let buffer = '';
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
+        // Read streaming response via 'data' events
+        for await (const chunk of sseRes) {
+            if (sseAbortController.signal.aborted) break;
+            buffer += decoder.decode(chunk, { stream: true });
 
             // Parse JSON lines/chunks from streaming response
             let lines = buffer.split('\n');
@@ -506,7 +512,8 @@ async function startCascadeSSE() {
             }
         }
     } catch (e) {
-        if (e.name !== 'AbortError') {
+        // req.destroy() from abort throws ECONNRESET, not AbortError — check both
+        if (e.name !== 'AbortError' && !sseAbortController?.signal?.aborted) {
             console.log(`[SSE] Error: ${e.message}. Will retry in 10s.`);
             setTimeout(startCascadeSSE, 10000);
         }
