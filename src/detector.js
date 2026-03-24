@@ -1,10 +1,48 @@
 // === Language Server Auto-Detection ===
 const { exec } = require('child_process');
+const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { lsConfig, lsInstances, platform } = require('./config');
+
+// Node 18+ native fetch() (Undici) silently ignores https.Agent — rejectUnauthorized
+// never takes effect. Use http/https.request() directly so self-signed certs work.
+function connectPost(url, headers, body, timeoutMs = 3000) {
+    return new Promise((resolve, reject) => {
+        const parsed = new URL(url);
+        const isHttps = parsed.protocol === 'https:';
+        const transport = isHttps ? https : http;
+        const opts = {
+            hostname: parsed.hostname.replace(/^\[|\]$/g, ''), // strip IPv6 brackets
+            port: parsed.port,
+            path: parsed.pathname,
+            method: 'POST',
+            headers: { ...headers, 'Content-Length': Buffer.byteLength(body) },
+            timeout: timeoutMs,
+        };
+        if (isHttps) opts.rejectUnauthorized = false;
+
+        const req = transport.request(opts, (res) => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c.toString()));
+            res.on('end', () => {
+                resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode,
+                    statusText: res.statusMessage,
+                    text: () => Promise.resolve(chunks.join('')),
+                    json: () => Promise.resolve(JSON.parse(chunks.join(''))),
+                });
+            });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('TimeoutError')); });
+        req.write(body);
+        req.end();
+    });
+}
 
 // Lazy-load to avoid circular dependency (headless-ls requires config which is loaded here)
 let _isHeadlessPid = null;
@@ -145,47 +183,35 @@ async function detectPorts(pid) {
 
 // Try Connect protocol (gRPC-Web/JSON) on all address variants.
 // Fix for issue #68: Windows LS may bind ::1 (IPv6) instead of 127.0.0.1 (IPv4).
-// NOTE: pure gRPC/HTTP2 probe is intentionally omitted — api.js uses HTTP/1.1 fetch()
-// and cannot make HTTP/2 calls. If the LS truly runs pure gRPC, that requires a
-// separate HTTP/2 client layer in api.js (tracked as a follow-up).
+// Fix for issue #86: Uses connectPost() instead of fetch() — native fetch() silently
+// ignores https.Agent so rejectUnauthorized never took effect on self-signed certs.
 async function findApiPort(ports, csrfToken) {
     if (!ports || !ports.length || !csrfToken) return null;
     const headers = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken };
+    const endpoint = '/exa.language_server_pb.LanguageServerService/GetUserStatus';
+
+    const probes = [
+        { label: 'HTTPS/IPv4',    url: (p) => `https://127.0.0.1:${p}${endpoint}`,  tls: true },
+        { label: 'HTTP/localhost', url: (p) => `http://localhost:${p}${endpoint}`,    tls: false },
+        { label: 'HTTPS/IPv6',    url: (p) => `https://[::1]:${p}${endpoint}`,       tls: true },
+        { label: 'HTTP/IPv6',     url: (p) => `http://[::1]:${p}${endpoint}`,        tls: false },
+    ];
+
     for (const port of ports) {
-        // 1. HTTPS Connect — IPv4 (most common on macOS/Linux)
-        try {
-            const agent = new https.Agent({ rejectUnauthorized: false });
-            const res = await fetch(`https://127.0.0.1:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
-                method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000), agent
-            });
-            if (res.ok) { console.log(`[✓] API on port ${port} (HTTPS/IPv4)`); return { port, useTls: true }; }
-        } catch { }
-
-        // 2. HTTP Connect — localhost (OS-dependent: may be IPv4 or IPv6)
-        try {
-            const res = await fetch(`http://localhost:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
-                method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000)
-            });
-            if (res.ok) { console.log(`[✓] API on port ${port} (HTTP/localhost)`); return { port, useTls: false }; }
-        } catch { }
-
-        // 3. HTTPS Connect — IPv6 loopback
-        // Fix #68: Windows 11 LS may bind ::1 instead of 127.0.0.1
-        try {
-            const agent = new https.Agent({ rejectUnauthorized: false });
-            const res = await fetch(`https://[::1]:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
-                method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000), agent
-            });
-            if (res.ok) { console.log(`[✓] API on port ${port} (HTTPS/IPv6)`); return { port, useTls: true }; }
-        } catch { }
-
-        // 4. HTTP Connect — IPv6 loopback
-        try {
-            const res = await fetch(`http://[::1]:${port}/exa.language_server_pb.LanguageServerService/GetUserStatus`, {
-                method: 'POST', headers, body: '{}', signal: AbortSignal.timeout(3000)
-            });
-            if (res.ok) { console.log(`[✓] API on port ${port} (HTTP/IPv6)`); return { port, useTls: false }; }
-        } catch { }
+        console.log(`[~] Probing port ${port} (${probes.length} strategies)...`);
+        for (const probe of probes) {
+            try {
+                const res = await connectPost(probe.url(port), headers, '{}', 3000);
+                if (res.ok) {
+                    console.log(`[✓] API on port ${port} (${probe.label})`);
+                    return { port, useTls: probe.tls };
+                }
+                console.log(`[~] Port ${port} ${probe.label}: responded ${res.status} ${res.statusText}`);
+            } catch (err) {
+                const reason = err?.cause?.code || err?.code || err?.message || String(err);
+                console.log(`[~] Port ${port} ${probe.label}: ${reason}`);
+            }
+        }
     }
     return null;
 }
@@ -195,14 +221,8 @@ async function getWorkspaceInfo(port, csrfToken, useTls, workspaceId) {
     try {
         const protocol = useTls ? 'https' : 'http';
         const host = useTls ? '127.0.0.1' : 'localhost';
-        const opts = {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken },
-            body: '{}',
-            signal: AbortSignal.timeout(5000)
-        };
-        if (useTls) opts.agent = new https.Agent({ rejectUnauthorized: false });
-        const res = await fetch(`${protocol}://${host}:${port}/exa.language_server_pb.LanguageServerService/GetWorkspaceInfos`, opts);
+        const headers = { 'Content-Type': 'application/json', 'Connect-Protocol-Version': '1', 'X-Codeium-Csrf-Token': csrfToken };
+        const res = await connectPost(`${protocol}://${host}:${port}/exa.language_server_pb.LanguageServerService/GetWorkspaceInfos`, headers, '{}', 5000);
         if (!res.ok) return { name: 'unknown', category: 'workspace', folderUri: null };
         const data = await res.json();
         const uris = (data.workspaceInfos || []).map(w => w.workspaceUri);
@@ -258,7 +278,11 @@ async function init(onReady) {
     const seenFolderUris = new Set();
     for (const inst of instances) {
         const ports = await detectPorts(inst.pid);
-        if (!ports.length) continue;
+        if (!ports.length) {
+            console.log(`[!] PID ${inst.pid}: no listening ports found`);
+            continue;
+        }
+        console.log(`[~] PID ${inst.pid}: found ${ports.length} candidate port(s): ${ports.join(', ')}`);
 
         const result = await findApiPort(ports, inst.csrfToken);
         if (result) {

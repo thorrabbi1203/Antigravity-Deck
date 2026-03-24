@@ -31,21 +31,35 @@ function baseHeaders(conn) {
 }
 
 // --- JSON API call (Connect Protocol) ---
+// Fix #86: Node 18+ native fetch() ignores https.Agent — use http/https.request() directly
+// so rejectUnauthorized: false actually takes effect on self-signed certs.
 // inst is optional — if omitted, uses global lsConfig
-async function callApi(method, body = {}, inst = null) {
-    const conn = resolveConn(inst);
-    const fetchOpts = {
-        method: 'POST',
-        headers: baseHeaders(conn),
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(inst ? 10000 : 30000),
-    };
-    if (conn.useTls) {
-        fetchOpts.agent = new https.Agent({ rejectUnauthorized: false });
-    }
-    const res = await fetch(makeUrl(conn, method), fetchOpts);
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    return res.json();
+function callApi(method, body = {}, inst = null) {
+    return new Promise((resolve, reject) => {
+        const conn = resolveConn(inst);
+        const data = JSON.stringify(body);
+        const transport = conn.useTls ? https : http;
+        const req = transport.request({
+            hostname: conn.host, port: conn.port,
+            path: `/exa.language_server_pb.LanguageServerService/${method}`,
+            method: 'POST',
+            headers: { ...baseHeaders(conn), 'Content-Length': Buffer.byteLength(data) },
+            timeout: inst ? 10000 : 30000,
+            rejectUnauthorized: false,
+        }, (res) => {
+            const chunks = [];
+            res.on('data', c => chunks.push(c.toString()));
+            res.on('end', () => {
+                if (res.statusCode >= 400) { reject(new Error(`API ${res.statusCode}`)); return; }
+                try { resolve(JSON.parse(chunks.join(''))); }
+                catch (e) { reject(new Error(`API parse error: ${e.message}`)); }
+            });
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('API timeout')); });
+        req.write(data);
+        req.end();
+    });
 }
 
 // --- Fire-and-forget for streaming RPCs ---
